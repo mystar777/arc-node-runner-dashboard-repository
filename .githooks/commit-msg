@@ -1,0 +1,24 @@
+#!/bin/sh
+# Co-authored-by: Cursor 가 남아 있으면 커밋 자체를 거부합니다.
+MSG_FILE="$1"
+[ -f "$MSG_FILE" ] || exit 0
+
+if grep -qiE '^Co-authored-by:[[:space:]]*.*cursoragent@cursor\.com[[:space:]]*$' "$MSG_FILE"; then
+  echo >&2 ""
+  echo >&2 "[arc-node-runner] COMMIT REJECTED"
+  echo >&2 "  Co-authored-by: Cursor (cursoragent@cursor.com) is not allowed."
+  echo >&2 "  Use: npm run commit:safe -- \"your message\""
+  echo >&2 "  Or commit from an external terminal after: npm run setup:hooks"
+  echo >&2 ""
+  exit 1
+fi
+
+if grep -qiE '^Co-authored-by:[[:space:]]*Cursor[[:space:]]*<' "$MSG_FILE"; then
+  echo >&2 ""
+  echo >&2 "[arc-node-runner] COMMIT REJECTED"
+  echo >&2 "  Co-authored-by: Cursor is not allowed in this repository."
+  echo >&2 ""
+  exit 1
+fi
+
+exit 0

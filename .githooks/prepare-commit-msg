@@ -1,0 +1,14 @@
+#!/bin/sh
+# Cursor IDE가 git commit 시 Co-authored-by: Cursor 를 붙이는 것을 제거합니다.
+MSG_FILE="$1"
+[ -f "$MSG_FILE" ] || exit 0
+
+tmp="${MSG_FILE}.hooktmp.$$"
+trap 'rm -f "$tmp"' EXIT
+
+# cursoragent@cursor.com 및 Co-authored-by: Cursor 라인 제거
+sed -e '/^Co-authored-by:[[:space:]]*.*cursoragent@cursor\.com[[:space:]]*$/Id' \
+    -e '/^Co-authored-by:[[:space:]]*Cursor[[:space:]]*</Id' \
+    "$MSG_FILE" > "$tmp" && mv "$tmp" "$MSG_FILE"
+
+exit 0
