@@ -24,10 +24,16 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { HeadProgressionChart, LatencySpark, MicroMetricLines } from './charts';
+import { useNodeLogs, useNodeStatus } from './useNodeStatus';
 
 const DEFAULT_RPC =
   typeof process.env.NEXT_PUBLIC_DEFAULT_RPC === 'string' && process.env.NEXT_PUBLIC_DEFAULT_RPC
     ? process.env.NEXT_PUBLIC_DEFAULT_RPC
+    : 'http://127.0.0.1:8545';
+
+const DEFAULT_NETWORK_RPC =
+  typeof process.env.NEXT_PUBLIC_NETWORK_RPC === 'string' && process.env.NEXT_PUBLIC_NETWORK_RPC
+    ? process.env.NEXT_PUBLIC_NETWORK_RPC
     : 'https://rpc.testnet.arc.network';
 
 const ARC_TESTNET_CHAIN_ID = 5042002;
@@ -177,7 +183,7 @@ export default function ArcDashboard() {
   const [lang, setLang] = useState<'ko' | 'en' | 'ja'>('ko');
 
   const [rpcUrl, setRpcUrl] = useState(DEFAULT_RPC);
-  const [networkRpcUrl, setNetworkRpcUrl] = useState('');
+  const [networkRpcUrl, setNetworkRpcUrl] = useState(DEFAULT_NETWORK_RPC);
   const [pollMs, setPollMs] = useState(5000);
   const [snapshot, setSnapshot] = useState<HealthSnapshot | null>(null);
   const [loading, setLoading] = useState(false);
@@ -186,14 +192,26 @@ export default function ArcDashboard() {
   const [latencyRing, setLatencyRing] = useState<number[]>([]);
   const [headSeries, setHeadSeries] = useState<{ t: string; local: number; network: number }[]>([]);
   const [blockDeltaRing, setBlockDeltaRing] = useState<number[]>([]);
-  const prevBlockRef = useRef<number | null>(null);
+  const prevBlockRef = useRef<{ n: number; t: number } | null>(null);
 
   const [recentBlocks, setRecentBlocks] = useState<BlockRow[]>([]);
   const [recentTxs, setRecentTxs] = useState<TxRow[]>([]);
 
-  const [logLines, setLogLines] = useState<string[]>([]);
   const [logFollow, setLogFollow] = useState(true);
   const logBoxRef = useRef<HTMLDivElement>(null);
+  const [blockTimeSec, setBlockTimeSec] = useState<number | null>(null);
+  const lastBlockSample = useRef<{ n: number; t: number } | null>(null);
+
+  const { status: nodeStatus, loading: nodeStatusLoading, refresh: refreshNodeStatus } = useNodeStatus(
+    rpcUrl,
+    networkRpcUrl,
+    pollMs,
+    mounted
+  );
+  const useJournalLogs =
+    nodeStatus?.isLocalNode ?? (rpcUrl.includes('127.0.0.1') || rpcUrl.includes('localhost'));
+  const { lines: journalLines } = useNodeLogs(useJournalLogs && mounted, pollMs);
+  const [simLogLines, setSimLogLines] = useState<string[]>([]);
 
   const [globalSearch, setGlobalSearch] = useState('');
   const searchRef = useRef<HTMLInputElement>(null);
@@ -267,12 +285,13 @@ export default function ArcDashboard() {
     }
   }, [rpcUrl, networkRpcUrl, pollMs]);
 
-  const appendLog = useCallback((line: string) => {
-    setLogLines((prev) => {
+  const appendSimLog = useCallback((line: string) => {
+    if (useJournalLogs) return;
+    setSimLogLines((prev) => {
       const next = [...prev, `[${new Date().toISOString().slice(11, 19)}] ${line}`];
-      return next.slice(-200);
+      return next.slice(-80);
     });
-  }, []);
+  }, [useJournalLogs]);
 
   const scrollSection = useCallback((id: NavId) => {
     setActiveNav(id);
@@ -357,26 +376,25 @@ export default function ArcDashboard() {
       );
 
       const prev = prevBlockRef.current;
-      if (prev != null) {
-        const d = Math.max(0, localBn - prev);
+      if (prev != null && localBn > prev.n) {
+        const dt = (Date.now() - prev.t) / 1000 / (localBn - prev.n);
+        if (dt > 0 && dt < 120) setBlockTimeSec(Math.round(dt * 1000) / 1000);
+        const d = Math.max(0, localBn - prev.n);
         setBlockDeltaRing((r) => [...r, d].slice(-36));
       }
-      prevBlockRef.current = localBn;
+      prevBlockRef.current = { n: localBn, t: Date.now() };
 
-      if (!errors.block && blockNumber) {
-        appendLog(`[execution] INFO latest=0x${localBn.toString(16)} latency=${timings.block ?? '?'}ms`);
-      } else if (errors.block) {
-        appendLog(`[execution] ERROR ${errors.block}`);
-      }
-      if (syncing === false) {
-        appendLog(`[consensus] INFO eth_syncing=false (완전 동기화)`);
-      } else if (syncing && typeof syncing === 'object') {
-        appendLog(`[consensus] INFO syncing object received`);
+      if (!useJournalLogs) {
+        if (!errors.block && blockNumber) {
+          appendSimLog(`[execution] INFO block=${localBn} latency=${timings.block ?? '?'}ms`);
+        } else if (errors.block) {
+          appendSimLog(`[execution] ERROR ${errors.block}`);
+        }
       }
     }
 
     setLoading(false);
-  }, [rpcUrl, networkRpcUrl, appendLog]);
+  }, [rpcUrl, networkRpcUrl, appendSimLog, useJournalLogs]);
 
   const loadBlocksAndTxs = useCallback(async () => {
     const bnHex = snapshot?.blockNumber;
@@ -451,30 +469,80 @@ export default function ArcDashboard() {
   useEffect(() => {
     if (!logFollow || !logBoxRef.current) return;
     logBoxRef.current.scrollTop = logBoxRef.current.scrollHeight;
-  }, [logLines, logFollow]);
+  }, [journalLines, simLogLines, logFollow]);
+
+  const logLines = useMemo(
+    () => (useJournalLogs ? journalLines : simLogLines),
+    [useJournalLogs, journalLines, simLogLines]
+  );
 
   const chainOk = useMemo(() => {
-    if (snapshot?.chainIdDec == null) return null;
-    return snapshot.chainIdDec === ARC_TESTNET_CHAIN_ID;
-  }, [snapshot]);
+    const id = nodeStatus?.rpc.chainIdDec ?? snapshot?.chainIdDec;
+    if (id == null) return null;
+    return id === ARC_TESTNET_CHAIN_ID;
+  }, [snapshot, nodeStatus]);
 
   const allHealthy = useMemo(() => {
+    if (nodeStatus?.layers) {
+      return nodeStatus.layers.execution.healthy && nodeStatus.layers.consensus.healthy && nodeStatus.alerts.length === 0;
+    }
     if (!snapshot) return false;
     return !snapshot.errors.block && !snapshot.errors.chain && !snapshot.errors.sync && !snapshot.errors.net;
-  }, [snapshot]);
+  }, [snapshot, nodeStatus]);
 
   const latSorted = useMemo(() => [...latencyRing].sort((a, b) => a - b), [latencyRing]);
   const p50 = percentile(latSorted, 50);
   const p95 = percentile(latSorted, 95);
-  const curLat = snapshot?.timings.block ?? snapshot?.timings.net ?? 0;
+  const curLat = nodeStatus?.rpc.latencyMs ?? snapshot?.timings.block ?? snapshot?.timings.net ?? 0;
 
-  const syncPct = syncProgress(snapshot?.syncing);
+  const syncPct =
+    nodeStatus?.rpc.syncPct ?? syncProgress(nodeStatus?.rpc.syncing ?? snapshot?.syncing);
 
-  const localBlock = snapshot?.blockNumber ? hexToDec(snapshot.blockNumber) : null;
-  const netBlock = networkHeadFromSync(snapshot?.syncing, localBlock);
+  const localBlock = nodeStatus?.rpc.localBlock ?? (snapshot?.blockNumber ? hexToDec(snapshot.blockNumber) : null);
+  const netBlock =
+    nodeStatus?.rpc.networkBlock ?? networkHeadFromSync(snapshot?.syncing, localBlock);
 
-  const execHealthy = !snapshot?.errors.block;
-  const consHealthy = snapshot ? snapshot.syncing === false || (syncPct != null && syncPct >= 99) : false;
+  const execHealthy = nodeStatus?.layers.execution.healthy ?? !snapshot?.errors.block;
+  const consHealthy =
+    nodeStatus?.layers.consensus.healthy ??
+    (snapshot ? snapshot.syncing === false || (syncPct != null && syncPct >= 99) : false);
+
+  const finalityLabel =
+    blockTimeSec != null ? `${blockTimeSec}s` : nodeStatus?.isLocalNode ? '측정 중…' : '~0.48s (문서)';
+
+  const healthPills = useMemo(() => {
+    if (!nodeStatus?.pills) return null;
+    const p = nodeStatus.pills;
+    return [
+      { label: 'Execution active', ok: p.executionActive },
+      { label: 'Consensus active', ok: p.consensusActive },
+      { label: 'IPC OK', ok: p.ipcOk, hide: p.ipcOk === null },
+      { label: 'EL metrics :9001', ok: p.metricsExec },
+      { label: 'CL metrics :29000', ok: p.metricsCons },
+      { label: 'Relay follow', ok: p.relayFollow }
+    ].filter((x) => !x.hide);
+  }, [nodeStatus]);
+
+  const resourceBars = useMemo(() => {
+    if (!nodeStatus?.resources) return null;
+    const r = nodeStatus.resources;
+    return [
+      { label: 'CPU', pct: r.cpuPct, icon: Cpu as typeof Cpu },
+      { label: 'Memory', pct: r.memoryPct, sub: r.memoryLabel, icon: Zap as typeof Zap },
+      {
+        label: 'Disk (execution)',
+        pct: r.diskExec?.usedPct ?? 0,
+        sub: r.diskExec?.label,
+        icon: HardDrive as typeof HardDrive
+      },
+      {
+        label: 'Disk (consensus)',
+        pct: r.diskCons?.usedPct ?? 0,
+        sub: r.diskCons?.label,
+        icon: Gauge as typeof Gauge
+      }
+    ];
+  }, [nodeStatus]);
 
   const filter = globalSearch.trim().toLowerCase();
 
@@ -583,16 +651,20 @@ export default function ArcDashboard() {
     []
   );
 
-  const configItems = useMemo(
-    () => [
-      { ok: true, label: 'Linux 커널 / 컨테이너 런타임 준비' },
-      { ok: true, label: '64GB+ RAM 권장 (노드 요구사항)' },
-      { ok: true, label: 'RPC 엔드포인트 (*.arc.network 또는 로컬) 응답' },
-      { ok: true, label: '체인 ID 검증 통과' },
-      { ok: false, label: '백업 / 복원 정책 (수동 확인 필요)', warn: true }
-    ],
-    []
-  );
+  const configItems = useMemo(() => {
+    const rpcOk = nodeStatus?.layers.execution.healthy ?? !snapshot?.errors.block;
+    const chainOkLocal = chainOk !== false;
+    const metricsOk = nodeStatus?.pills.metricsExec && nodeStatus?.pills.metricsCons;
+    const ipcOk = nodeStatus?.pills.ipcOk;
+    return [
+      { ok: nodeStatus?.isLocalNode ?? rpcUrl.includes('127.0.0.1'), label: '로컬 노드 RPC (127.0.0.1:8545)' },
+      { ok: !!rpcOk, label: 'Execution RPC (8545) 응답' },
+      { ok: chainOkLocal, label: `Chain ID ${ARC_TESTNET_CHAIN_ID} (Arc Testnet)` },
+      { ok: metricsOk ?? false, label: 'Prometheus EL:9001 · CL:29000' },
+      { ok: ipcOk ?? null, label: 'IPC sockets /run/arc/*.ipc', warn: ipcOk === false },
+      { ok: (nodeStatus?.rpc.syncPct ?? 0) >= 99.9, label: '동기화 완료 또는 진행 중', warn: (nodeStatus?.rpc.syncPct ?? 100) < 99 }
+    ].filter((c) => c.ok !== null);
+  }, [nodeStatus, snapshot, chainOk]);
 
   return (
     <div className="flex min-h-screen bg-dash-bg text-[14px] text-dash-text">
@@ -838,8 +910,11 @@ export default function ArcDashboard() {
                       {execHealthy ? 'Healthy' : 'Issue'}
                     </span>
                   </div>
-                  <p className="mt-3 text-[12px] text-dash-muted">HTTP RPC · 8545 (로컬 노드 시)</p>
+                  <p className="mt-3 text-[12px] text-dash-muted">HTTP RPC · 8545</p>
                   <p className="text-[12px] text-dash-muted">Metrics · 9001</p>
+                  {nodeStatus?.rpc.clientVersion && (
+                    <p className="mt-1 truncate font-mono text-[11px] text-dash-muted">{nodeStatus.rpc.clientVersion}</p>
+                  )}
                 </div>
                 <div className="rounded-xl border border-dash-border bg-dash-panel p-4 shadow-card">
                   <div className="flex items-start justify-between">
@@ -856,8 +931,13 @@ export default function ArcDashboard() {
                       {consHealthy ? 'Healthy' : 'Syncing'}
                     </span>
                   </div>
-                  <p className="mt-3 text-[12px] text-dash-muted">CL RPC · 31000 / Metrics · 29000 (문서 기준 예시)</p>
-                  <p className="text-[11px] text-dash-muted/80">※ 단일 JSON-RPC만 연결된 경우 추정 상태입니다.</p>
+                  <p className="mt-3 text-[12px] text-dash-muted">
+                    CL RPC · 31000 · Metrics · 29000
+                    {nodeStatus?.layers.consensus.systemd === true ? ' · systemd active' : ''}
+                  </p>
+                  {nodeStatus?.rpc.clientVersion && (
+                    <p className="text-[11px] font-mono text-dash-muted truncate">{nodeStatus.rpc.clientVersion}</p>
+                  )}
                 </div>
                 <div className="rounded-xl border border-dash-border bg-dash-panel p-4 shadow-card">
                   <p className="text-[11px] font-semibold uppercase tracking-wide text-dash-muted">Current Block</p>
@@ -886,11 +966,14 @@ export default function ArcDashboard() {
                     </h3>
                     <button
                       type="button"
-                      onClick={() => void runHealth()}
-                      disabled={loading}
+                      onClick={() => {
+                        void runHealth();
+                        void refreshNodeStatus();
+                      }}
+                      disabled={loading || nodeStatusLoading}
                       className="rounded-lg border border-dash-border px-3 py-1 text-[12px] hover:bg-dash-raised"
                     >
-                      {loading ? '새로고침…' : '새로고침'}
+                      {loading || nodeStatusLoading ? '새로고침…' : '새로고침'}
                     </button>
                   </div>
                   <div className="mt-4">
@@ -916,26 +999,33 @@ export default function ArcDashboard() {
                     </div>
                   </div>
                   <div className="mt-3 flex flex-wrap gap-2">
-                    {['Execution active', 'Consensus active', 'IPC OK', 'Metrics enabled', 'Relay endpoints OK'].map(
-                      (t) => (
-                        <span
-                          key={t}
-                          className="rounded-full bg-emerald-500/10 px-2.5 py-1 text-[11px] font-medium text-emerald-400"
-                        >
-                          {t}
-                        </span>
-                      )
+                    {healthPills?.map((t) => (
+                      <span
+                        key={t.label}
+                        className={clsx(
+                          'rounded-full px-2.5 py-1 text-[11px] font-medium',
+                          t.ok ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'
+                        )}
+                      >
+                        {t.label}
+                      </span>
+                    )) ?? (
+                      <span className="text-[11px] text-dash-muted">node-status 로딩 중…</span>
                     )}
                   </div>
-                  <p className="mt-2 text-[11px] text-dash-muted">
-                    피어/릴레이 수치는 데모 라벨입니다. 실제 값은 노드/모니터링 스택에 연결하세요.
-                  </p>
+                  {nodeStatus && !nodeStatus.isLocalNode && (
+                    <p className="mt-2 text-[11px] text-amber-400">
+                      원격 RPC만 연결됨 — 메트릭·journal 로그는 대시보드를 노드와 같은 Ubuntu 서버에서 실행하세요.
+                    </p>
+                  )}
                   {roundError && <p className="mt-2 text-[12px] text-red-400">{roundError}</p>}
                 </div>
                 <div className="rounded-xl border border-dash-border bg-dash-panel p-4 shadow-card">
                   <h3 className="text-sm font-bold">Finality</h3>
-                  <p className="mt-3 text-3xl font-bold text-dash-green">~0.48s</p>
-                  <p className="mt-1 text-[12px] text-dash-muted">Arc testnet 목표 (문서 기준)</p>
+                  <p className="mt-3 text-3xl font-bold text-dash-green">{finalityLabel}</p>
+                  <p className="mt-1 text-[12px] text-dash-muted">
+                    {blockTimeSec != null ? '측정된 블록 간격' : 'Arc testnet ~0.48s (문서)'}
+                  </p>
                   {chainOk === false && (
                     <p className="mt-3 text-[12px] text-amber-400">Chain ID가 Testnet과 다릅니다.</p>
                   )}
@@ -959,12 +1049,10 @@ export default function ArcDashboard() {
                     <Cpu className="h-4 w-4" />
                     Resources
                   </h3>
-                  {[
-                    { label: 'CPU', pct: 24, icon: Cpu },
-                    { label: 'Memory', pct: 41, icon: Zap },
-                    { label: 'Disk', pct: 20, sub: '359 / 1.8 TB', icon: HardDrive },
-                    { label: 'Snapshot', pct: 92, icon: Gauge }
-                  ].map((r) => (
+                  {(resourceBars ?? [
+                    { label: 'CPU', pct: 0, icon: Cpu },
+                    { label: 'Memory', pct: 0, icon: Zap }
+                  ]).map((r) => (
                     <div key={r.label} className="mb-3">
                       <div className="mb-1 flex justify-between text-[11px] text-dash-muted">
                         <span className="flex items-center gap-1">
@@ -984,7 +1072,9 @@ export default function ArcDashboard() {
                       </div>
                     </div>
                   ))}
-                  <p className="text-[10px] text-dash-muted">OS 메트릭 미연동 시 데모 값입니다.</p>
+                  {!resourceBars && (
+                    <p className="text-[10px] text-dash-muted">노드와 동일 호스트에서 대시보드 실행 시 OS·디스크 실측</p>
+                  )}
                 </div>
               </section>
 
@@ -1031,7 +1121,7 @@ export default function ArcDashboard() {
                                 <span className="text-[11px] text-dash-muted">{b.gasPct}%</span>
                               </div>
                             </td>
-                            <td className="py-2 text-dash-muted">~0.48s</td>
+                            <td className="py-2 text-dash-muted">{finalityLabel}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -1086,7 +1176,12 @@ export default function ArcDashboard() {
 
               <section id="section-prometheus" className="rounded-xl border border-dash-border bg-dash-panel p-4 shadow-card">
                 <h3 className="text-sm font-bold">Prometheus Metrics</h3>
-                <p className="text-[11px] text-dash-muted">Prometheus 미연동 — RPC·블록 델타에서 합성한 미니 시리즈</p>
+                <p className="text-[11px] text-dash-muted">
+                  RPC 지연·블록 수집·헤드 차이
+                  {nodeStatus?.prometheus
+                    ? ` · EL metrics ${nodeStatus.prometheus.execMetricCount} · CL ${nodeStatus.prometheus.consMetricCount}`
+                    : ''}
+                </p>
                 <div className="mt-3">
                   {chartsReady ? (
                     <MicroMetricLines
@@ -1117,7 +1212,7 @@ export default function ArcDashboard() {
                       </button>
                       <button
                         type="button"
-                        onClick={() => setLogLines([])}
+                        onClick={() => setSimLogLines([])}
                         className="rounded border border-dash-border px-2 py-1 text-[11px]"
                       >
                         Clear
@@ -1220,16 +1315,19 @@ export default function ArcDashboard() {
                 </div>
               </section>
 
-              <section id="section-alerts" className="rounded-xl border border-dash-border border-amber-500/20 bg-amber-500/5 p-4">
-                <h3 className="flex items-center gap-2 text-sm font-bold text-amber-200">
-                  <AlertTriangle className="h-4 w-4" />
-                  Alerts (데모)
-                </h3>
-                <ul className="mt-2 list-inside list-disc text-[13px] text-dash-muted">
-                  <li>백업 스냅샷 정책이 아직 검증되지 않았습니다.</li>
-                  <li>Prometheus scrape 대상이 설정되지 않았습니다.</li>
-                </ul>
-              </section>
+              {nodeStatus && nodeStatus.alerts.length > 0 && (
+                <section id="section-alerts" className="rounded-xl border border-dash-border border-amber-500/20 bg-amber-500/5 p-4">
+                  <h3 className="flex items-center gap-2 text-sm font-bold text-amber-200">
+                    <AlertTriangle className="h-4 w-4" />
+                    Alerts ({nodeStatus.alerts.length})
+                  </h3>
+                  <ul className="mt-2 list-inside list-disc text-[13px] text-dash-muted">
+                    {nodeStatus.alerts.map((a) => (
+                      <li key={a}>{a}</li>
+                    ))}
+                  </ul>
+                </section>
+              )}
             </div>
           )}
         </main>
