@@ -1,0 +1,23 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body {
+    @apply min-h-full antialiased bg-dash-bg text-dash-text;
+  }
+  body {
+    font-family: var(--font-dm), ui-sans-serif, system-ui, sans-serif;
+  }
+  code,
+  pre,
+  .font-mono {
+    font-family: var(--font-mono), ui-monospace, monospace;
+  }
+}
+
+/* Recharts tooltip in dark theme */
+.recharts-default-tooltip {
+  @apply !rounded-lg !border-dash-border !bg-dash-panel !text-dash-text;
+}

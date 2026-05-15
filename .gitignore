@@ -1,0 +1,17 @@
+node_modules
+.next
+out
+.env*.local
+.env
+*.log
+.DS_Store
+Thumbs.db
+
+# IDE / tooling
+.idea/
+.vscode/
+*.swp
+*.tsbuildinfo
+
+# Cursor
+.cursor/
