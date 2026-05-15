@@ -5,18 +5,17 @@ MSG_FILE="$1"
 
 if grep -qiE '^Co-authored-by:[[:space:]]*.*cursoragent@cursor\.com[[:space:]]*$' "$MSG_FILE"; then
   echo >&2 ""
-  echo >&2 "[arc-node-runner] COMMIT REJECTED"
+  echo >&2 "[git hooks] COMMIT REJECTED"
   echo >&2 "  Co-authored-by: Cursor (cursoragent@cursor.com) is not allowed."
-  echo >&2 "  Use: npm run commit:safe -- \"your message\""
-  echo >&2 "  Or commit from an external terminal after: npm run setup:hooks"
+  echo >&2 "  Global hooks: ~/.githooks-global (npm run setup:hooks)"
   echo >&2 ""
   exit 1
 fi
 
 if grep -qiE '^Co-authored-by:[[:space:]]*Cursor[[:space:]]*<' "$MSG_FILE"; then
   echo >&2 ""
-  echo >&2 "[arc-node-runner] COMMIT REJECTED"
-  echo >&2 "  Co-authored-by: Cursor is not allowed in this repository."
+  echo >&2 "[git hooks] COMMIT REJECTED"
+  echo >&2 "  Co-authored-by: Cursor is not allowed."
   echo >&2 ""
   exit 1
 fi
