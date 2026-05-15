@@ -1,33 +1,35 @@
 # Arc Node Runner Dashboard
 
-Arc Testnet **풀 노드**를 운영하면서 RPC·동기화·Prometheus 메트릭·시스템 리소스를 한 화면에서 모니터링하는 웹 대시보드입니다.  
-[Arc 공식 문서 MCP](https://docs.arc.io/ai/mcp)(`https://docs.arc.io/mcp`)와 연동해 **Arc Docs Assistant**로 노드 운영 문서를 검색할 수 있습니다.
+> **Languages:** [English](README.md) · [한국어](README.ko.md) · [日本語](README.ja.md) · [简体中文](README.zh.md) · [Русский](README.ru.md) · [Español](README.es.md)
 
-> Arc 노드 아키텍처: [Running a node](https://docs.arc.io/arc/concepts/running-a-node) · 설치: [Run an Arc node](https://docs.arc.io/arc/tutorials/run-an-arc-node) · 요구 사항: [Node requirements](https://docs.arc.io/arc/references/node-requirements)
+A web dashboard for operating an Arc Testnet **full node** and monitoring RPC, sync status, Prometheus metrics, and system resources in one place.  
+It integrates with the [official Arc Docs MCP](https://docs.arc.io/ai/mcp) (`https://docs.arc.io/mcp`) so you can search node operations docs via **Arc Docs Assistant**.
 
----
-
-## 주요 기능
-
-| 영역 | 내용 |
-|------|------|
-| **노드 헬스** | `eth_blockNumber`, `eth_chainId`, `eth_syncing`, `net_version` 폴링 |
-| **EL / CL 상태** | Execution( Reth )·Consensus( Malachite ) 헬스, systemd·IPC·메트릭 연동 |
-| **동기화** | 로컬 헤드 vs 네트워크 헤드, sync 진행률 |
-| **블록 / 트랜잭션** | 최근 블록·최신 블록 트랜잭션 (온체인 RPC) |
-| **Prometheus** | EL `:9001`, CL `:29000` 메트릭 프록시·차트 |
-| **리소스** | CPU·메모리·`~/.arc` 디스크 사용량 (대시보드와 노드 **동일 호스트**) |
-| **Live Logs** | `journalctl` — `arc-execution` / `arc-consensus` |
-| **Arc Docs (MCP)** | `search_arc_docs` — 공식 문서 검색 |
-| **RPC 콘솔** | 허용된 JSON-RPC 메서드 프록시 호출 |
+> Arc node architecture: [Running a node](https://docs.arc.io/arc/concepts/running-a-node) · Install: [Run an Arc node](https://docs.arc.io/arc/tutorials/run-an-arc-node) · Requirements: [Node requirements](https://docs.arc.io/arc/references/node-requirements)
 
 ---
 
-## 아키텍처
+## Features
+
+| Area | Description |
+|------|-------------|
+| **Node health** | Poll `eth_blockNumber`, `eth_chainId`, `eth_syncing`, `net_version` |
+| **EL / CL status** | Execution (Reth) & Consensus (Malachite) health, systemd, IPC, metrics |
+| **Sync** | Local head vs network head, sync progress |
+| **Blocks / txs** | Recent blocks and latest-block transactions (on-chain RPC) |
+| **Prometheus** | EL `:9001`, CL `:29000` metrics proxy & charts |
+| **Resources** | CPU, memory, `~/.arc` disk usage (dashboard and node on **same host**) |
+| **Live logs** | `journalctl` — `arc-execution` / `arc-consensus` |
+| **Arc Docs (MCP)** | `search_arc_docs` — official documentation search |
+| **RPC console** | Proxy calls for allowed JSON-RPC methods |
+
+---
+
+## Architecture
 
 ```mermaid
 flowchart TB
-  subgraph Ubuntu["Ubuntu 서버 (권장)"]
+  subgraph Ubuntu["Ubuntu server (recommended)"]
     EL["arc-node-execution\n:8545 RPC · :9001 metrics"]
     CL["arc-node-consensus\n:29000 metrics · :31000 CL RPC"]
     EL <-->|IPC /run/arc/*.ipc| CL
@@ -40,69 +42,69 @@ flowchart TB
   end
   NET["Arc Testnet\n(relay / public RPC)"] --> CL
   MCP["docs.arc.io/mcp"] --> DASH
-  USER["브라우저"] --> DASH
+  USER["Browser"] --> DASH
 ```
 
-**데이터 출처 요약**
+**Data sources**
 
-- **실데이터**: RPC, 블록/트랜잭션 테이블, sync, systemd·IPC·메트릭·OS 리소스(동일 호스트), journal 로그, MCP 문서 검색
-- **측정/추정**: 블록 간격(finality), RPC 지연 차트, 헤드 진행 차트
+- **Live data**: RPC, block/tx tables, sync, systemd/IPC/metrics/OS resources (same host), journal logs, MCP doc search
+- **Measured / estimated**: block interval (finality), RPC latency charts, head progress charts
 
 ---
 
-## 요구 사항
+## Requirements
 
-### 대시보드만 (공개 RPC 연결)
+### Dashboard only (public RPC)
 
-- **Node.js** `>= 18.18` ([Next.js 15](https://nextjs.org/) 요구)
+- **Node.js** `>= 18.18` ([Next.js 15](https://nextjs.org/))
 - npm 9+
 
-### Ubuntu 풀 스택 (노드 + 대시보드)
+### Full Ubuntu stack (node + dashboard)
 
-| 항목 | 권장 |
-|------|------|
+| Item | Recommended |
+|------|-------------|
 | OS | Ubuntu 22.04+ / Debian 12+ |
-| CPU | 높은 클럭 (코어 수보다 중요) |
+| CPU | High clock speed (more important than core count) |
 | RAM | **64 GB+** |
-| 디스크 | **1 TB+ NVMe** (스냅샷·체인 데이터) |
-| 네트워크 | 안정적인 24 Mbps+ |
+| Disk | **1 TB+ NVMe** (snapshots & chain data) |
+| Network | Stable 24 Mbps+ |
 
-Arc Testnet 노드 바이너리: **v0.6.0** ([arc-node](https://github.com/circlefin/arc-node))
+Arc Testnet node binary: **v0.6.0** ([arc-node](https://github.com/circlefin/arc-node))
 
 ---
 
-## 빠른 시작
+## Quick start
 
-### 1) 저장소 클론
+### 1) Clone the repository
 
 ```bash
 git clone https://github.com/mystar777/arc-node-runner-dashboard-repository.git
 cd arc-node-runner-dashboard-repository
 ```
 
-### 2) 환경 변수
+### 2) Environment variables
 
 ```bash
 cp .env.example .env.local
-# 필요 시 편집
+# edit as needed
 ```
 
-### 3) 의존성 설치 및 실행
+### 3) Install dependencies and run
 
 ```bash
 npm install
 npm run dev:local
 ```
 
-브라우저: **http://127.0.0.1:3333**
+Open in browser: **http://127.0.0.1:3333**
 
-> `postinstall` 시 Git 훅이 전역·로컬에 설치되어 Cursor `Co-authored-by` 트레일러를 차단합니다. ([Git 훅](#git-커밋-cursor-co-authored-by-차단) 참고)
+> On `postinstall`, Git hooks are installed globally and locally to block Cursor `Co-authored-by` trailers. See [Git hooks](#block-cursor-co-authored-by-on-commits).
 
 ---
 
-## Ubuntu: 노드 + 대시보드 한 번에 설치 (권장)
+## Ubuntu: install node + dashboard (recommended)
 
-공식 튜토리얼을 바탕으로 한 자동 설치 스크립트입니다.
+Automated installer based on the official tutorial.
 
 ```bash
 git clone https://github.com/mystar777/arc-node-runner-dashboard-repository.git
@@ -110,41 +112,41 @@ cd arc-node-runner-dashboard-repository
 sudo bash scripts/install-arc-node.sh
 ```
 
-### 스크립트가 하는 일
+### What the script does
 
-1. 빌드 도구·Rust 설치  
-2. [arc-node](https://github.com/circlefin/arc-node) `v0.6.0` 빌드 → `/usr/local/bin`  
-3. `~/.arc/execution`, `~/.arc/consensus` 생성  
-4. `arc-snapshots download --chain=arc-testnet` (스냅샷, **1~2시간·대용량**)  
-5. **systemd** 서비스 등록·기동  
+1. Installs build tools and Rust  
+2. Builds [arc-node](https://github.com/circlefin/arc-node) `v0.6.0` → `/usr/local/bin`  
+3. Creates `~/.arc/execution`, `~/.arc/consensus`  
+4. Runs `arc-snapshots download --chain=arc-testnet` (**1–2 hours**, large download)  
+5. Registers and starts **systemd** services  
    - `arc-execution` — RPC `127.0.0.1:8545`, metrics `:9001`  
    - `arc-consensus` — metrics `:29000`, CL RPC `:31000`  
-6. 대시보드 `npm install` + `.env.local` 생성  
+6. Runs dashboard `npm install` and creates `.env.local`  
 
-### 설치 옵션 (환경 변수)
+### Install options (environment variables)
 
 ```bash
-# 스냅샷 생략 (동기화 매우 오래 걸림)
+# Skip snapshot (sync takes much longer)
 sudo SKIP_SNAPSHOTS=1 bash scripts/install-arc-node.sh
 
-# 이미 빌드된 바이너리가 있을 때
+# When binaries are already built
 sudo SKIP_BUILD=1 bash scripts/install-arc-node.sh
 
-# 대시보드 설치만 생략
+# Skip dashboard install only
 sudo DASHBOARD_INSTALL=0 bash scripts/install-arc-node.sh
 ```
 
-### 동기화 확인
+### Verify sync
 
 ```bash
 sudo systemctl status arc-execution arc-consensus
 journalctl -u arc-execution -f
 
-# Foundry cast (선택)
+# Foundry cast (optional)
 cast block-number --rpc-url http://127.0.0.1:8545
 ```
 
-### 대시보드 기동 (설치 후)
+### Start the dashboard (after install)
 
 ```bash
 cd arc-node-runner-dashboard-repository
@@ -153,73 +155,73 @@ npm run dev:local
 
 ---
 
-## 원격 서버에서 대시보드 보기
+## Viewing the dashboard on a remote server
 
-기본 `npm run dev:local`은 **`127.0.0.1:3333`** 에만 바인딩됩니다.  
-즉, 서버 IP `111.222.333.444:3333`으로 **바로 접속되지 않습니다**.
+By default, `npm run dev:local` binds to **`127.0.0.1:3333` only**.  
+You **cannot** open `http://111.222.333.444:3333` directly unless you change the bind address.
 
-### 방법 A — SSH 터널 (권장, 보안)
+### Option A — SSH tunnel (recommended, secure)
 
-서버에서는 로컬만 열고, 내 PC에서:
+Keep the server on localhost only; on your PC:
 
 ```bash
 ssh -L 3333:127.0.0.1:3333 ubuntu@111.222.333.444
 ```
 
-브라우저: **http://127.0.0.1:3333**
+Browser: **http://127.0.0.1:3333**
 
-### 방법 B — 외부 IP로 직접 접속
+### Option B — Direct access via public IP
 
 ```bash
 npm run dev -- -H 0.0.0.0 -p 3333
-# 프로덕션: npm run build && npm start -- -H 0.0.0.0 -p 3333
+# production: npm run build && npm start -- -H 0.0.0.0 -p 3333
 ```
 
-방화벽·보안 그룹에서 **3333/TCP** 허용:
+Allow **3333/TCP** in firewall / security group:
 
 ```bash
 sudo ufw allow 3333/tcp
 ```
 
-브라우저: **http://111.222.333.444:3333**
+Browser: **http://111.222.333.444:3333**
 
-> 공개 인터넷에 노출 시 인증(리버스 프록시, VPN, Basic Auth)을 반드시 고려하세요.
+> If exposed on the public internet, add authentication (reverse proxy, VPN, Basic Auth).
 
-### 방법 C — 프로덕션
+### Option C — Production
 
 ```bash
 npm run build
 npm start -- -H 0.0.0.0 -p 3333
 ```
 
-Nginx + HTTPS + 인증 앞단 구성을 권장합니다.
+Use Nginx + HTTPS + auth in front.
 
-### 원격 접속 vs 노드 데이터
+### Remote access vs node data
 
-| 대시보드 실행 위치 | RPC·블록 | 메트릭·디스크·journal |
-|-------------------|----------|----------------------|
-| **노드와 같은 Ubuntu** | ✅ | ✅ |
-| 다른 PC + 공개 RPC만 | ✅ | ❌ (UI에 경고 표시) |
+| Where the dashboard runs | RPC & blocks | Metrics, disk, journal |
+|--------------------------|--------------|-------------------------|
+| **Same Ubuntu as the node** | ✅ | ✅ |
+| Other PC, public RPC only | ✅ | ❌ (warning in UI) |
 
-메트릭(`9001`/`29000`)·`journalctl`·디스크는 **Next.js가 노드와 같은 머신**에서 실행될 때만 실데이터입니다.
+Metrics (`9001`/`29000`), `journalctl`, and disk usage are live only when **Next.js runs on the same machine as the node**.
 
 ---
 
-## 환경 변수
+## Environment variables
 
-`.env.example`을 복사해 `.env.local`을 만듭니다.
+Copy `.env.example` to `.env.local`.
 
-| 변수 | 기본값 | 설명 |
-|------|--------|------|
-| `NEXT_PUBLIC_DEFAULT_RPC` | `http://127.0.0.1:8545` | 브라우저 기본 RPC |
-| `NEXT_PUBLIC_NETWORK_RPC` | `https://rpc.testnet.arc.network` | 네트워크 헤드 비교용 |
-| `ARC_RPC_URL` | `http://127.0.0.1:8545` | 서버 `/api/node-status` |
-| `ARC_NETWORK_RPC_URL` | 공개 testnet RPC | 네트워크 블록 참조 |
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `NEXT_PUBLIC_DEFAULT_RPC` | `http://127.0.0.1:8545` | Browser default RPC |
+| `NEXT_PUBLIC_NETWORK_RPC` | `https://rpc.testnet.arc.network` | Network head comparison |
+| `ARC_RPC_URL` | `http://127.0.0.1:8545` | Server `/api/node-status` |
+| `ARC_NETWORK_RPC_URL` | public testnet RPC | Network block reference |
 | `ARC_EXEC_METRICS_URL` | `http://127.0.0.1:9001/metrics` | EL Prometheus |
 | `ARC_CONS_METRICS_URL` | `http://127.0.0.1:29000/metrics` | CL Prometheus |
-| `ARC_DATA_DIR` | `/home/ubuntu/.arc` | 디스크 사용량 경로 |
+| `ARC_DATA_DIR` | `/home/ubuntu/.arc` | Disk usage path |
 
-공개 RPC만 쓸 때 예:
+Example using public RPC only:
 
 ```env
 NEXT_PUBLIC_DEFAULT_RPC=https://rpc.testnet.arc.network
@@ -228,22 +230,22 @@ NEXT_PUBLIC_NETWORK_RPC=https://rpc.testnet.arc.network
 
 ---
 
-## npm 스크립트
+## npm scripts
 
-| 명령 | 설명 |
-|------|------|
-| `npm run dev` | 개발 서버 (기본 `0.0.0.0:3000`) |
-| `npm run dev:local` | `127.0.0.1:3333` — 로컬·SSH 터널용 |
-| `npm run build` | 프로덕션 빌드 |
-| `npm run start` | 프로덕션 서버 |
-| `npm run setup:hooks` | Git `Co-authored-by: Cursor` 차단 훅 설치 |
-| `npm run commit:safe -- "메시지"` | Cursor 래핑 없이 안전 커밋 |
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Dev server (default `0.0.0.0:3000`) |
+| `npm run dev:local` | `127.0.0.1:3333` — local / SSH tunnel |
+| `npm run build` | Production build |
+| `npm run start` | Production server |
+| `npm run setup:hooks` | Install Git hooks blocking `Co-authored-by: Cursor` |
+| `npm run commit:safe -- "message"` | Commit without Cursor wrapper |
 
-Windows PowerShell에서 `npm` 실행 정책 오류 시:
+On Windows PowerShell, if `npm.ps1` execution policy fails:
 
 ```powershell
 npm.cmd run dev:local
-# 또는
+# or
 .\dev-local.bat
 ```
 
@@ -251,13 +253,13 @@ npm.cmd run dev:local
 
 ## Arc Docs MCP
 
-대시보드 **Arc Docs Assistant** 탭은 서버가 [Arc MCP](https://docs.arc.io/ai/mcp)에 연결합니다.
+The dashboard **Arc Docs Assistant** tab connects to [Arc MCP](https://docs.arc.io/ai/mcp).
 
-- 엔드포인트: `https://docs.arc.io/mcp`
-- 도구: `search_arc_docs`, `query_docs_filesystem_arc_docs`
-- 인증 불필요
+- Endpoint: `https://docs.arc.io/mcp`
+- Tools: `search_arc_docs`, `query_docs_filesystem_arc_docs`
+- No authentication required
 
-Cursor IDE에서 동일 MCP를 쓰려면 [Arc MCP 문서](https://docs.arc.io/ai/mcp)의 `mcp.json` 예시를 참고하세요.
+For Cursor IDE, see the `mcp.json` example in [Arc MCP docs](https://docs.arc.io/ai/mcp).
 
 ```json
 {
@@ -271,27 +273,27 @@ Cursor IDE에서 동일 MCP를 쓰려면 [Arc MCP 문서](https://docs.arc.io/ai
 
 ---
 
-## API (대시보드 내부)
+## API (dashboard)
 
-| 경로 | 메서드 | 설명 |
-|------|--------|------|
-| `/api/rpc` | POST | JSON-RPC 프록시 (허용 URL·메서드만) |
-| `/api/node-status` | GET | RPC·sync·systemd·메트릭·리소스·알림 집계 |
-| `/api/arc-mcp` | POST | Arc 문서 MCP 검색 |
-| `/api/logs` | GET | `journalctl` (Linux, 동일 호스트) |
+| Path | Method | Description |
+|------|--------|-------------|
+| `/api/rpc` | POST | JSON-RPC proxy (allowed URLs & methods only) |
+| `/api/node-status` | GET | RPC, sync, systemd, metrics, resources, alerts |
+| `/api/arc-mcp` | POST | Arc docs MCP search |
+| `/api/logs` | GET | `journalctl` (Linux, same host) |
 
-### RPC 프록시 허용 URL
+### RPC proxy allowed URLs
 
 - `http://127.0.0.1:*`, `http://localhost:*`
 - `https://*.arc.network`
 
-### RPC 허용 메서드 (일부)
+### Allowed RPC methods (partial)
 
-`eth_blockNumber`, `eth_chainId`, `eth_syncing`, `eth_getBlockByNumber`, `eth_gasPrice`, `web3_clientVersion` 등 — `app/api/rpc/route.ts` 참고.
+`eth_blockNumber`, `eth_chainId`, `eth_syncing`, `eth_getBlockByNumber`, `eth_gasPrice`, `web3_clientVersion`, etc. — see `app/api/rpc/route.ts`.
 
 ---
 
-## 프로젝트 구조
+## Project structure
 
 ```
 ├── app/
@@ -299,28 +301,28 @@ Cursor IDE에서 동일 MCP를 쓰려면 [Arc MCP 문서](https://docs.arc.io/ai
 │   ├── layout.tsx
 │   └── page.tsx
 ├── components/
-│   └── arc-dashboard/    # 대시보드 UI
+│   └── arc-dashboard/    # Dashboard UI
 ├── lib/                  # RPC, Prometheus, URL allowlist
 ├── scripts/
-│   ├── install-arc-node.sh   # Ubuntu 노드 자동 설치
+│   ├── install-arc-node.sh   # Ubuntu node installer
 │   ├── install-git-hooks.mjs
 │   ├── git-commit-safe.mjs
 │   └── ensure-node.mjs
-├── .githooks/            # Co-authored-by 차단
+├── .githooks/            # Block Co-authored-by
 ├── .env.example
-└── dev-local.bat         # Windows용 dev:local
+└── dev-local.bat         # Windows dev:local
 ```
 
 ---
 
-## Git 커밋: Cursor `Co-authored-by` 차단
+## Block Cursor `Co-authored-by` on commits
 
-Cursor 터미널이 커밋에 `Co-authored-by: Cursor <cursoragent@cursor.com>`를 붙이는 경우가 있습니다.
+The Cursor terminal may append `Co-authored-by: Cursor <cursoragent@cursor.com>` to commits.
 
-- **전역 훅**: `~/.githooks-global` (`npm run setup:hooks` / `postinstall`)
-- **안전 커밋**: `npm run commit:safe -- "메시지"`
+- **Global hooks**: `~/.githooks-global` (`npm run setup:hooks` / `postinstall`)
+- **Safe commit**: `npm run commit:safe -- "message"`
 
-푸시 전 확인:
+Before push:
 
 ```bash
 git log -1 --format=%B
@@ -328,20 +330,20 @@ git log -1 --format=%B
 
 ---
 
-## Arc Testnet 참고
+## Arc Testnet reference
 
-| 항목 | 값 |
-|------|-----|
+| Item | Value |
+|------|-------|
 | Chain ID | `5042002` |
-| Gas | USDC |
-| 공개 RPC | `https://rpc.testnet.arc.network` |
+| Gas token | USDC |
+| Public RPC | `https://rpc.testnet.arc.network` |
 | Explorer | [testnet.arcscan.app](https://testnet.arcscan.app/) |
 | Faucet | [faucet.circle.com](https://faucet.circle.com/) |
 
-노드 포트 ([Node requirements](https://docs.arc.io/arc/references/node-requirements)):
+Node ports ([Node requirements](https://docs.arc.io/arc/references/node-requirements)):
 
-| 포트 | 용도 |
-|------|------|
+| Port | Use |
+|------|-----|
 | 8545 | Execution JSON-RPC |
 | 9001 | Execution Prometheus |
 | 29000 | Consensus Prometheus |
@@ -349,17 +351,17 @@ git log -1 --format=%B
 
 ---
 
-## 문제 해결
+## Troubleshooting
 
-### `You are using Node.js 16.x` / Next.js 버전 오류
+### `You are using Node.js 16.x` / Next.js version error
 
-Node **18.18+** (권장 **20 LTS**) 설치 후 재시도.
+Install Node **18.18+** (recommended **20 LTS**) and retry.
 
 ```bash
-node -v   # v20.x 권장
+node -v   # v20.x recommended
 ```
 
-### PowerShell `npm.ps1` 실행 정책 오류
+### PowerShell `npm.ps1` execution policy error
 
 ```powershell
 npm.cmd run dev:local
@@ -367,33 +369,33 @@ npm.cmd run dev:local
 
 ### RPC `connection refused`
 
-- 노드 기동 여부: `systemctl status arc-execution`
-- URL: `http://127.0.0.1:8545` (대시보드와 **같은 서버**)
-- 방화벽에서 8545를 외부에 열지 않았는지 확인 (기본은 로컬만)
+- Is the node running? `systemctl status arc-execution`
+- URL: `http://127.0.0.1:8545` (dashboard on **same server**)
+- Confirm port 8545 is not exposed externally (default is localhost only)
 
-### 메트릭·로그·디스크가 비어 있음
+### Metrics, logs, or disk empty
 
-대시보드를 **노드와 같은 Ubuntu**에서 실행했는지 확인. Windows에서 공개 RPC만 쓰면 RPC·블록만 실데이터입니다.
+Run the dashboard on the **same Ubuntu host as the node**. On Windows with public RPC only, RPC and blocks are live; metrics/logs/disk are not.
 
-### 스냅샷 다운로드가 오래 걸림
+### Snapshot download takes a long time
 
-정상입니다(수십 GB, 1~2시간). `SKIP_SNAPSHOTS=1`은 초기 동기화만 극단적으로 길어집니다.
+Expected (tens of GB, 1–2 hours). `SKIP_SNAPSHOTS=1` makes initial sync much longer.
 
-### Chain ID 불일치
+### Chain ID mismatch
 
-`.env`와 노드가 **Arc Testnet**(`5042002`)인지 확인. [Run an Arc node](https://docs.arc.io/arc/tutorials/run-an-arc-node) 제네시스·`--chain arc-testnet` 확인.
-
----
-
-## 라이선스
-
-이 저장소의 라이선스는 [LICENSE](./LICENSE) 파일을 참고하세요.
-
-Arc 네트워크·`arc-node` 바이너리는 Circle / Arc 프로젝트 약관 및 해당 저장소 라이선스를 따릅니다.
+Confirm `.env` and node use **Arc Testnet** (`5042002`). Check genesis and `--chain arc-testnet` in [Run an Arc node](https://docs.arc.io/arc/tutorials/run-an-arc-node).
 
 ---
 
-## 링크
+## License
+
+See [LICENSE](./LICENSE) for this repository.
+
+Arc network and `arc-node` binaries follow Circle / Arc project terms and their repository licenses.
+
+---
+
+## Links
 
 - [Arc Network](https://docs.arc.io/arc-chain)
 - [Integrate with Arc](https://docs.arc.io/integrate)
