@@ -22,6 +22,7 @@ It integrates with the [official Arc Docs MCP](https://docs.arc.io/ai/mcp) (`htt
 | **Live logs** | `journalctl` — `arc-execution` / `arc-consensus` |
 | **Arc Docs (MCP)** | `search_arc_docs` — official documentation search |
 | **RPC console** | Proxy calls for allowed JSON-RPC methods |
+| **UI languages** | English, 한국어, 日本語, 简体中文, Русский, Español (header selector; saved in browser) |
 
 ---
 
@@ -86,8 +87,10 @@ cd arc-node-runner-dashboard-repository
 
 ```bash
 cp .env.example .env.local
-# edit as needed
+# edit as needed — see below
 ```
+
+> **Windows / dashboard only (no local node):** defaults point at `http://127.0.0.1:8545`, which only works when [arc-node](https://github.com/circlefin/arc-node) is running on the same machine (typically Ubuntu). On Windows, set **public Testnet RPC** in `.env.local` (full example in [Environment variables](#environment-variables)), then **restart** the dev server.
 
 ### 3) Install dependencies and run
 
@@ -221,12 +224,18 @@ Copy `.env.example` to `.env.local`.
 | `ARC_CONS_METRICS_URL` | `http://127.0.0.1:29000/metrics` | CL Prometheus |
 | `ARC_DATA_DIR` | `/home/ubuntu/.arc` | Disk usage path |
 
-Example using public RPC only:
+**Dashboard only** (no local node — Windows, macOS, or remote UI):
 
 ```env
 NEXT_PUBLIC_DEFAULT_RPC=https://rpc.testnet.arc.network
 NEXT_PUBLIC_NETWORK_RPC=https://rpc.testnet.arc.network
+ARC_RPC_URL=https://rpc.testnet.arc.network
+ARC_NETWORK_RPC_URL=https://rpc.testnet.arc.network
 ```
+
+After changing `.env.local`, restart `npm run dev:local`. You can also set the RPC URL under **Settings** in the UI (stored in `localStorage`).
+
+Official Testnet HTTP RPC ([RPC endpoints](https://docs.arc.io/arc/references/rpc-endpoints)): `https://rpc.testnet.arc.network`
 
 ---
 
@@ -291,6 +300,29 @@ For Cursor IDE, see the `mcp.json` example in [Arc MCP docs](https://docs.arc.io
 
 `eth_blockNumber`, `eth_chainId`, `eth_syncing`, `eth_getBlockByNumber`, `eth_gasPrice`, `web3_clientVersion`, etc. — see `app/api/rpc/route.ts`.
 
+### `/api/rpc` errors (502)
+
+The route proxies JSON-RPC to the URL in the request body. **502** means the dashboard could not reach that RPC endpoint (not a broken Next.js route).
+
+| `code` | Typical cause |
+|--------|----------------|
+| `connection_refused` | Nothing listening on the URL (e.g. local `127.0.0.1:8545` without a running node) |
+| `timeout` | RPC did not respond within 25s |
+| `http` | Upstream returned a non-2xx HTTP status |
+
+The JSON body includes `error`, `hint`, and `rpcUrl`. Example when the local node is stopped:
+
+```json
+{
+  "ok": false,
+  "code": "connection_refused",
+  "error": "Connection refused — no RPC server is listening (http://127.0.0.1:8545) — …",
+  "hint": "… set NEXT_PUBLIC_DEFAULT_RPC=https://rpc.testnet.arc.network in .env.local …"
+}
+```
+
+Logic: `lib/rpcFetchError.ts`.
+
 ---
 
 ## Project structure
@@ -301,8 +333,8 @@ For Cursor IDE, see the `mcp.json` example in [Arc MCP docs](https://docs.arc.io
 │   ├── layout.tsx
 │   └── page.tsx
 ├── components/
-│   └── arc-dashboard/    # Dashboard UI
-├── lib/                  # RPC, Prometheus, URL allowlist
+│   └── arc-dashboard/    # Dashboard UI, charts, i18n.ts
+├── lib/                  # RPC, Prometheus, URL allowlist, rpcFetchError
 ├── scripts/
 │   ├── install-arc-node.sh   # Ubuntu node installer
 │   ├── install-git-hooks.mjs
@@ -367,11 +399,26 @@ node -v   # v20.x recommended
 npm.cmd run dev:local
 ```
 
-### RPC `connection refused`
+### `/api/rpc` returns **502** or browser shows `fetch failed`
+
+1. Open the failed request in DevTools → **Response**. Check `code` and `hint`.
+2. If `connection_refused` and URL is `http://127.0.0.1:8545`: no Arc node on this machine. Use public RPC in `.env.local` (see [Environment variables](#environment-variables)) or start the node on Ubuntu.
+3. Test the proxy directly:
+
+```bash
+curl -s -X POST http://127.0.0.1:3333/api/rpc \
+  -H "Content-Type: application/json" \
+  -d '{"url":"https://rpc.testnet.arc.network","method":"eth_blockNumber"}'
+```
+
+Should return `"ok":true`. If public RPC works but local does not, your setup is correct for dashboard-only mode.
+
+### RPC `connection refused` (local node)
 
 - Is the node running? `systemctl status arc-execution`
 - URL: `http://127.0.0.1:8545` (dashboard on **same server**)
 - Confirm port 8545 is not exposed externally (default is localhost only)
+- Arc Testnet RPC URLs: [RPC endpoints](https://docs.arc.io/arc/references/rpc-endpoints) (primary: `https://rpc.testnet.arc.network`)
 
 ### Metrics, logs, or disk empty
 

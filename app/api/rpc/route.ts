@@ -1,4 +1,9 @@
 import { NextResponse } from 'next/server';
+import {
+  describeRpcFetchError,
+  describeRpcHttpError,
+  formatRpcFetchError
+} from '@/lib/rpcFetchError';
 import { isAllowedRpcUrl } from '@/lib/urlAllowlist';
 
 const ALLOWED_METHODS = new Set([
@@ -67,16 +72,38 @@ export async function POST(req: Request) {
       signal: ac.signal
     });
   } catch (e) {
-    const message = e instanceof Error ? e.message : '네트워크 오류';
-    return NextResponse.json({ ok: false, error: message, ms: Math.round(performance.now() - t0) }, { status: 502 });
+    const ms = Math.round(performance.now() - t0);
+    const info = describeRpcFetchError(e, url);
+    return NextResponse.json(
+      {
+        ok: false,
+        error: formatRpcFetchError(info),
+        message: info.error,
+        hint: info.hint,
+        code: info.code,
+        rpcUrl: url,
+        ms
+      },
+      { status: 502 }
+    );
   } finally {
     clearTimeout(tid);
   }
   const ms = Math.round(performance.now() - t0);
   const data = await res.json().catch(() => null);
   if (!res.ok) {
+    const info = describeRpcHttpError(res.status, url);
     return NextResponse.json(
-      { ok: false, error: `HTTP ${res.status}`, ms, body: data },
+      {
+        ok: false,
+        error: formatRpcFetchError(info),
+        message: info.error,
+        hint: info.hint,
+        code: info.code,
+        rpcUrl: url,
+        ms,
+        body: data
+      },
       { status: 502 }
     );
   }

@@ -24,6 +24,16 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { HeadProgressionChart, LatencySpark, MicroMetricLines } from './charts';
+import {
+  formatTimeAgo,
+  getDict,
+  LANG_OPTIONS,
+  localeForLang,
+  LS_LANG,
+  parseLang,
+  type Lang,
+  type NavId
+} from './i18n';
 import { useNodeLogs, useNodeStatus } from './useNodeStatus';
 
 const DEFAULT_RPC =
@@ -46,6 +56,8 @@ type RpcCallResult = {
   ms?: number;
   data?: { result?: unknown; error?: { message: string } };
   error?: string;
+  hint?: string;
+  code?: string;
 };
 
 type HealthSnapshot = {
@@ -75,19 +87,6 @@ type TxRow = {
   finality: string;
 };
 
-type NavId =
-  | 'overview'
-  | 'node'
-  | 'sync'
-  | 'blocks'
-  | 'txs'
-  | 'prometheus'
-  | 'logs'
-  | 'config'
-  | 'docs'
-  | 'alerts'
-  | 'settings';
-
 type MainMode = 'overview' | 'settings' | 'rpc';
 
 function hexToDec(hex: string | undefined): number | null {
@@ -101,15 +100,6 @@ function formatHexBlock(hex: string | null): string {
   if (!hex) return '—';
   const n = hexToDec(hex);
   return n != null ? n.toLocaleString('en-US') : hex;
-}
-
-function timeAgo(iso: string): string {
-  const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
-  if (s < 5) return '방금';
-  if (s < 60) return `${s}s 전`;
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m 전`;
-  return `${Math.floor(m / 60)}h 전`;
 }
 
 function percentile(sorted: number[], p: number): number {
@@ -161,18 +151,18 @@ async function copyText(text: string): Promise<void> {
   }
 }
 
-const NAV: { id: NavId; label: string; icon: typeof LayoutDashboard; badge?: number }[] = [
-  { id: 'overview', label: 'Overview', icon: LayoutDashboard },
-  { id: 'node', label: 'Node Status', icon: Server },
-  { id: 'sync', label: 'Sync & Finality', icon: Activity },
-  { id: 'blocks', label: 'Blocks', icon: Blocks },
-  { id: 'txs', label: 'Transactions', icon: ArrowLeftRight },
-  { id: 'prometheus', label: 'Prometheus Metrics', icon: Gauge },
-  { id: 'logs', label: 'Logs', icon: ScrollText },
-  { id: 'config', label: 'Config Validator', icon: Shield },
-  { id: 'docs', label: 'Arc Docs Assistant', icon: BookOpen },
-  { id: 'alerts', label: 'Alerts', icon: AlertTriangle, badge: 2 },
-  { id: 'settings', label: 'Settings', icon: Settings }
+const NAV_ITEMS: { id: NavId; icon: typeof LayoutDashboard; badge?: number }[] = [
+  { id: 'overview', icon: LayoutDashboard },
+  { id: 'node', icon: Server },
+  { id: 'sync', icon: Activity },
+  { id: 'blocks', icon: Blocks },
+  { id: 'txs', icon: ArrowLeftRight },
+  { id: 'prometheus', icon: Gauge },
+  { id: 'logs', icon: ScrollText },
+  { id: 'config', icon: Shield },
+  { id: 'docs', icon: BookOpen },
+  { id: 'alerts', icon: AlertTriangle, badge: 2 },
+  { id: 'settings', icon: Settings }
 ];
 
 export default function ArcDashboard() {
@@ -180,7 +170,19 @@ export default function ArcDashboard() {
   const [chartsReady, setChartsReady] = useState(false);
   const [mainMode, setMainMode] = useState<MainMode>('overview');
   const [activeNav, setActiveNav] = useState<NavId>('overview');
-  const [lang, setLang] = useState<'ko' | 'en' | 'ja'>('ko');
+  const [lang, setLang] = useState<Lang>('en');
+  const d = useMemo(() => getDict(lang), [lang]);
+  const chartLabels = useMemo(
+    () => ({
+      pollingEmpty: d.chartPollingEmpty,
+      localHead: d.chartLocalHead,
+      networkHead: d.chartNetworkHead,
+      rpcLatency: d.chartRpcLatency,
+      blockImportRate: d.chartBlockImportRate,
+      syncStage: d.chartSyncStage
+    }),
+    [d]
+  );
 
   const [rpcUrl, setRpcUrl] = useState(DEFAULT_RPC);
   const [networkRpcUrl, setNetworkRpcUrl] = useState(DEFAULT_NETWORK_RPC);
@@ -220,7 +222,7 @@ export default function ArcDashboard() {
   const [rpcParamsJson, setRpcParamsJson] = useState('');
   const [rpcOut, setRpcOut] = useState('');
 
-  const [docQuery, setDocQuery] = useState('노드가 동기화되지 않을 때 확인할 것은?');
+  const [docQuery, setDocQuery] = useState('');
   const [docLoading, setDocLoading] = useState(false);
   const [docHits, setDocHits] = useState<
     { title?: string; link?: string; page?: string; snippet?: string }[]
@@ -247,9 +249,31 @@ export default function ArcDashboard() {
         const v = parseInt(p, 10);
         if (v >= 2000 && v <= 120_000) setPollMs(v);
       }
+      const savedLang = parseLang(localStorage.getItem(LS_LANG));
+      setLang(savedLang);
+      setDocQuery(getDict(savedLang).docDefaultQuery);
+    } catch {
+      setDocQuery(getDict('en').docDefaultQuery);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof document !== 'undefined') {
+      document.documentElement.lang = lang;
+    }
+  }, [lang]);
+
+  const onLangChange = useCallback((next: Lang) => {
+    setLang(next);
+    try {
+      localStorage.setItem(LS_LANG, next);
     } catch {
       /* ignore */
     }
+    setDocQuery((q) => {
+      const prevDefaults = LANG_OPTIONS.map((o) => getDict(o.value).docDefaultQuery);
+      return prevDefaults.includes(q) ? getDict(next).docDefaultQuery : q;
+    });
   }, []);
 
   useEffect(() => {
@@ -327,7 +351,7 @@ export default function ArcDashboard() {
         const r = await proxyRpc(rpcUrl, method, params);
         timings[key] = r.ms;
         if (!r.ok || !r.data) {
-          errors[key] = r.error || '요청 실패';
+          errors[key] = r.error || getDict(lang).requestFailed;
           return;
         }
         if (r.data.error) {
@@ -394,7 +418,7 @@ export default function ArcDashboard() {
     }
 
     setLoading(false);
-  }, [rpcUrl, networkRpcUrl, appendSimLog, useJournalLogs]);
+  }, [rpcUrl, networkRpcUrl, appendSimLog, useJournalLogs, lang]);
 
   const loadBlocksAndTxs = useCallback(async () => {
     const bnHex = snapshot?.blockNumber;
@@ -422,7 +446,7 @@ export default function ArcDashboard() {
       rows.push({
         num,
         hash: typeof b.hash === 'string' ? b.hash : '—',
-        time: ts != null ? new Date(ts * 1000).toLocaleTimeString('ko-KR') : '—',
+        time: ts != null ? new Date(ts * 1000).toLocaleTimeString(localeForLang(lang)) : '—',
         txCount: txs,
         gasUsed: gu.toLocaleString('en-US'),
         gasPct: gl > 0 ? Math.round((gu / gl) * 1000) / 10 : 0
@@ -453,7 +477,7 @@ export default function ArcDashboard() {
       });
     }
     setRecentTxs(out);
-  }, [rpcUrl, snapshot?.blockNumber]);
+  }, [rpcUrl, snapshot?.blockNumber, lang]);
 
   useEffect(() => {
     if (!mounted) return;
@@ -508,20 +532,24 @@ export default function ArcDashboard() {
     (snapshot ? snapshot.syncing === false || (syncPct != null && syncPct >= 99) : false);
 
   const finalityLabel =
-    blockTimeSec != null ? `${blockTimeSec}s` : nodeStatus?.isLocalNode ? '측정 중…' : '~0.48s (문서)';
+    blockTimeSec != null
+      ? `${blockTimeSec}s`
+      : nodeStatus?.isLocalNode
+        ? d.measuring
+        : d.finalityDocShort;
 
   const healthPills = useMemo(() => {
     if (!nodeStatus?.pills) return null;
     const p = nodeStatus.pills;
     return [
-      { label: 'Execution active', ok: p.executionActive },
-      { label: 'Consensus active', ok: p.consensusActive },
-      { label: 'IPC OK', ok: p.ipcOk, hide: p.ipcOk === null },
-      { label: 'EL metrics :9001', ok: p.metricsExec },
-      { label: 'CL metrics :29000', ok: p.metricsCons },
-      { label: 'Relay follow', ok: p.relayFollow }
+      { label: d.pillExecution, ok: p.executionActive },
+      { label: d.pillConsensus, ok: p.consensusActive },
+      { label: d.pillIpc, ok: p.ipcOk, hide: p.ipcOk === null },
+      { label: d.pillElMetrics, ok: p.metricsExec },
+      { label: d.pillClMetrics, ok: p.metricsCons },
+      { label: d.pillRelay, ok: p.relayFollow }
     ].filter((x) => !x.hide);
-  }, [nodeStatus]);
+  }, [nodeStatus, d]);
 
   const resourceBars = useMemo(() => {
     if (!nodeStatus?.resources) return null;
@@ -586,7 +614,7 @@ export default function ArcDashboard() {
       try {
         params = JSON.parse(raw) as unknown[] | Record<string, unknown>;
       } catch {
-        setRpcOut('params JSON 파싱 실패');
+        setRpcOut(d.paramsParseError);
         return;
       }
     }
@@ -617,7 +645,7 @@ export default function ArcDashboard() {
         setDocHits(j.hits || []);
         const bullets = (j.hits || [])
           .slice(0, 5)
-          .map((h, i) => `${i + 1}. ${h.title || h.page || '문서'}${h.link ? ` — ${h.link}` : ''}`)
+          .map((h, i) => `${i + 1}. ${h.title || h.page || d.docDoc}${h.link ? ` — ${h.link}` : ''}`)
           .join('\n');
         setAssistantMessages((m) => [
           ...m,
@@ -626,29 +654,22 @@ export default function ArcDashboard() {
             text:
               bullets ||
               j.rawText?.slice(0, 1200) ||
-              '검색 결과가 없습니다. 질문을 바꿔 보세요.'
+              d.docNoResults
           }
         ]);
       }
     } catch (e) {
       setAssistantMessages((m) => [
         ...m,
-        { role: 'assistant', text: e instanceof Error ? e.message : '요청 실패' }
+        { role: 'assistant', text: e instanceof Error ? e.message : d.requestFailed }
       ]);
     }
     setDocLoading(false);
   };
 
   const chainFacts = useMemo(
-    () => [
-      'EVM 호환 (Prague)',
-      '가스 토큰: USDC',
-      '합의: Malachite BFT',
-      '블록 타임: ~0.48s (testnet)',
-      'Chain ID: 5042002',
-      '개발자 접근: 무허가'
-    ],
-    []
+    () => [d.factEvm, d.factGas, d.factConsensus, d.factBlockTime, d.factChainId, d.factPermissionless],
+    [d]
   );
 
   const configItems = useMemo(() => {
@@ -657,14 +678,18 @@ export default function ArcDashboard() {
     const metricsOk = nodeStatus?.pills.metricsExec && nodeStatus?.pills.metricsCons;
     const ipcOk = nodeStatus?.pills.ipcOk;
     return [
-      { ok: nodeStatus?.isLocalNode ?? rpcUrl.includes('127.0.0.1'), label: '로컬 노드 RPC (127.0.0.1:8545)' },
-      { ok: !!rpcOk, label: 'Execution RPC (8545) 응답' },
-      { ok: chainOkLocal, label: `Chain ID ${ARC_TESTNET_CHAIN_ID} (Arc Testnet)` },
-      { ok: metricsOk ?? false, label: 'Prometheus EL:9001 · CL:29000' },
-      { ok: ipcOk ?? null, label: 'IPC sockets /run/arc/*.ipc', warn: ipcOk === false },
-      { ok: (nodeStatus?.rpc.syncPct ?? 0) >= 99.9, label: '동기화 완료 또는 진행 중', warn: (nodeStatus?.rpc.syncPct ?? 100) < 99 }
+      { ok: nodeStatus?.isLocalNode ?? rpcUrl.includes('127.0.0.1'), label: d.cfgLocalRpc },
+      { ok: !!rpcOk, label: d.cfgExecRpc },
+      { ok: chainOkLocal, label: d.cfgChainId },
+      { ok: metricsOk ?? false, label: d.cfgPrometheus },
+      { ok: ipcOk ?? null, label: d.cfgIpc, warn: ipcOk === false },
+      {
+        ok: (nodeStatus?.rpc.syncPct ?? 0) >= 99.9,
+        label: d.cfgSync,
+        warn: (nodeStatus?.rpc.syncPct ?? 100) < 99
+      }
     ].filter((c) => c.ok !== null);
-  }, [nodeStatus, snapshot, chainOk]);
+  }, [nodeStatus, snapshot, chainOk, rpcUrl, d]);
 
   return (
     <div className="flex min-h-screen bg-dash-bg text-[14px] text-dash-text">
@@ -678,7 +703,7 @@ export default function ArcDashboard() {
           </div>
         </div>
         <nav className="flex-1 space-y-0.5 overflow-y-auto p-2">
-          {NAV.map((item) => {
+          {NAV_ITEMS.map((item) => {
             const Icon = item.icon;
             const active =
               item.id === 'settings' ? mainMode === 'settings' : mainMode === 'overview' && activeNav === item.id;
@@ -693,7 +718,7 @@ export default function ArcDashboard() {
                 )}
               >
                 <Icon className="h-4 w-4 shrink-0 opacity-90" />
-                <span className="flex-1 truncate">{item.label}</span>
+                <span className="flex-1 truncate">{d.nav[item.id]}</span>
                 {item.badge != null && (
                   <span className="rounded-full bg-dash-blue px-1.5 text-[10px] font-bold text-white">{item.badge}</span>
                 )}
@@ -706,7 +731,7 @@ export default function ArcDashboard() {
           <p className="mt-1 font-mono text-lg font-semibold">{ARC_TESTNET_CHAIN_ID}</p>
           <p className="mt-2 flex items-center gap-1.5 text-[12px] text-dash-green">
             <span className="h-2 w-2 rounded-full bg-dash-green shadow-[0_0_8px_#22c55e]" />
-            Up to date
+            {d.upToDate}
           </p>
         </div>
       </aside>
@@ -728,7 +753,7 @@ export default function ArcDashboard() {
               ref={searchRef}
               value={globalSearch}
               onChange={(e) => setGlobalSearch(e.target.value)}
-              placeholder="대시보드, 메트릭, 로그 검색…"
+              placeholder={d.searchPlaceholder}
               className="w-full rounded-lg border border-dash-border bg-dash-panel py-2 pl-9 pr-16 text-[13px] text-dash-text outline-none ring-dash-blue/30 placeholder:text-dash-muted focus:ring-2"
             />
             <kbd className="pointer-events-none absolute right-2 hidden rounded border border-dash-border bg-dash-raised px-1.5 py-0.5 font-mono text-[10px] text-dash-muted sm:inline">
@@ -744,17 +769,20 @@ export default function ArcDashboard() {
                 )}
               />
               <span className="text-[12px] text-dash-muted">
-                {allHealthy ? 'All Systems Healthy' : '일부 점검 필요'}
+                {allHealthy ? d.allHealthy : d.needsAttention}
               </span>
             </div>
             <select
               value={lang}
-              onChange={(e) => setLang(e.target.value as typeof lang)}
+              onChange={(e) => onLangChange(parseLang(e.target.value))}
               className="rounded-lg border border-dash-border bg-dash-panel px-2 py-1.5 text-[12px] text-dash-text"
+              aria-label="Language"
             >
-              <option value="ko">한국어</option>
-              <option value="en">English</option>
-              <option value="ja">日本語</option>
+              {LANG_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
             </select>
             <div className="flex h-9 w-9 items-center justify-center rounded-full bg-dash-raised text-xs font-bold text-dash-blueHi">
               OP
@@ -773,12 +801,12 @@ export default function ArcDashboard() {
                 }}
                 className="text-[13px] text-dash-blueHi hover:underline"
               >
-                ← Overview로
+                {d.backToOverview}
               </button>
               <div className="rounded-xl border border-dash-border bg-dash-panel p-5 shadow-card">
                 <h2 className="flex items-center gap-2 text-lg font-bold">
                   <SlidersHorizontal className="h-5 w-5 text-dash-blueHi" />
-                  Settings
+                  {d.settings}
                 </h2>
                 <div className="mt-4 space-y-4">
                   <label className="block">
@@ -790,16 +818,16 @@ export default function ArcDashboard() {
                     />
                   </label>
                   <label className="block">
-                    <span className="text-[12px] text-dash-muted">Network 참조 RPC (선택, 헤드 비교용)</span>
+                    <span className="text-[12px] text-dash-muted">{d.networkRpcHint}</span>
                     <input
                       value={networkRpcUrl}
                       onChange={(e) => setNetworkRpcUrl(e.target.value)}
-                      placeholder="비우면 eth_syncing 기준으로 네트워크 헤드 추정"
+                      placeholder={d.networkRpcPlaceholder}
                       className="mt-1 w-full rounded-lg border border-dash-border bg-dash-bg px-3 py-2 font-mono text-[13px]"
                     />
                   </label>
                   <label className="block">
-                    <span className="text-[12px] text-dash-muted">폴링 간격 (ms)</span>
+                    <span className="text-[12px] text-dash-muted">{d.pollInterval}</span>
                     <input
                       type="number"
                       min={2000}
@@ -815,12 +843,12 @@ export default function ArcDashboard() {
                     onClick={persist}
                     className="rounded-lg bg-dash-blue px-4 py-2 text-sm font-semibold text-white hover:bg-dash-blueHi"
                   >
-                    저장
+                    {d.save}
                   </button>
                   <p className="text-[12px] text-dash-muted">
-                    허용 호스트: *.arc.network, localhost, 127.0.0.1 ·{' '}
+                    {d.allowedHosts}{' '}
                     <button type="button" className="text-dash-blueHi underline" onClick={() => setMainMode('rpc')}>
-                      RPC 콘솔 열기
+                      {d.openRpcConsole}
                     </button>
                   </p>
                 </div>
@@ -835,10 +863,10 @@ export default function ArcDashboard() {
                 onClick={() => setMainMode('settings')}
                 className="text-[13px] text-dash-blueHi hover:underline"
               >
-                ← Settings로
+                {d.backToSettings}
               </button>
               <div className="rounded-xl border border-dash-border bg-dash-panel p-5 shadow-card">
-                <h2 className="text-lg font-bold">RPC 콘솔</h2>
+                <h2 className="text-lg font-bold">{d.rpcConsole}</h2>
                 <div className="mt-4 flex flex-wrap gap-2">
                   <select
                     value={rpcMethod}
@@ -871,18 +899,18 @@ export default function ArcDashboard() {
                     onClick={() => void runConsole()}
                     className="rounded-lg bg-dash-blue px-4 py-2 text-sm font-semibold text-white"
                   >
-                    호출
+                    {d.invoke}
                   </button>
                 </div>
                 <textarea
                   value={rpcParamsJson}
                   onChange={(e) => setRpcParamsJson(e.target.value)}
-                  placeholder='params JSON — 예: ["latest", false]'
+                  placeholder='params JSON — e.g. ["latest", false]'
                   rows={3}
                   className="mt-3 w-full rounded-lg border border-dash-border bg-dash-bg p-3 font-mono text-[12px]"
                 />
                 <pre className="mt-3 max-h-80 overflow-auto rounded-lg border border-dash-border bg-[#05080f] p-3 font-mono text-[11px] text-dash-muted">
-                  {rpcOut || '결과'}
+                  {rpcOut || d.result}
                 </pre>
               </div>
             </div>
@@ -942,7 +970,14 @@ export default function ArcDashboard() {
                 <div className="rounded-xl border border-dash-border bg-dash-panel p-4 shadow-card">
                   <p className="text-[11px] font-semibold uppercase tracking-wide text-dash-muted">Current Block</p>
                   <p className="mt-2 text-3xl font-bold tabular-nums">{formatHexBlock(snapshot?.blockNumber ?? null)}</p>
-                  <p className="mt-1 text-[12px] text-dash-muted">{snapshot ? timeAgo(snapshot.at) : '—'}</p>
+                  <p className="mt-1 text-[12px] text-dash-muted">
+                    {snapshot
+                      ? formatTimeAgo(
+                          lang,
+                          Math.floor((Date.now() - new Date(snapshot.at).getTime()) / 1000)
+                        )
+                      : '—'}
+                  </p>
                 </div>
                 <div className="rounded-xl border border-dash-border bg-dash-panel p-4 shadow-card">
                   <p className="text-[11px] font-semibold uppercase tracking-wide text-dash-muted">RPC Latency</p>
@@ -962,7 +997,7 @@ export default function ArcDashboard() {
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <h3 className="flex items-center gap-2 text-sm font-bold">
                       <Radio className="h-4 w-4 text-dash-blueHi" />
-                      Sync & Node Health
+                      {d.nav.sync}
                     </h3>
                     <button
                       type="button"
@@ -973,12 +1008,12 @@ export default function ArcDashboard() {
                       disabled={loading || nodeStatusLoading}
                       className="rounded-lg border border-dash-border px-3 py-1 text-[12px] hover:bg-dash-raised"
                     >
-                      {loading || nodeStatusLoading ? '새로고침…' : '새로고침'}
+                      {loading || nodeStatusLoading ? d.refreshing : d.refresh}
                     </button>
                   </div>
                   <div className="mt-4">
                     <div className="mb-1 flex justify-between text-[12px] text-dash-muted">
-                      <span>Sync Progress</span>
+                      <span>{d.syncProgress}</span>
                       <span>{syncPct != null ? `${syncPct.toFixed(2)}%` : 'N/A'}</span>
                     </div>
                     <div className="h-2 overflow-hidden rounded-full bg-dash-raised">
@@ -990,11 +1025,11 @@ export default function ArcDashboard() {
                   </div>
                   <div className="mt-4 grid gap-3 sm:grid-cols-2">
                     <div className="rounded-lg bg-dash-surface/80 p-3">
-                      <p className="text-[11px] text-dash-muted">Local Block</p>
+                      <p className="text-[11px] text-dash-muted">{d.localBlock}</p>
                       <p className="font-mono text-lg font-semibold">{localBlock?.toLocaleString('en-US') ?? '—'}</p>
                     </div>
                     <div className="rounded-lg bg-dash-surface/80 p-3">
-                      <p className="text-[11px] text-dash-muted">Network Block</p>
+                      <p className="text-[11px] text-dash-muted">{d.networkBlock}</p>
                       <p className="font-mono text-lg font-semibold">{netBlock?.toLocaleString('en-US') ?? '—'}</p>
                     </div>
                   </div>
@@ -1010,44 +1045,44 @@ export default function ArcDashboard() {
                         {t.label}
                       </span>
                     )) ?? (
-                      <span className="text-[11px] text-dash-muted">node-status 로딩 중…</span>
+                      <span className="text-[11px] text-dash-muted">{d.nodeStatusLoading}</span>
                     )}
                   </div>
                   {nodeStatus && !nodeStatus.isLocalNode && (
                     <p className="mt-2 text-[11px] text-amber-400">
-                      원격 RPC만 연결됨 — 메트릭·journal 로그는 대시보드를 노드와 같은 Ubuntu 서버에서 실행하세요.
+                      {d.remoteRpcWarning}
                     </p>
                   )}
                   {roundError && <p className="mt-2 text-[12px] text-red-400">{roundError}</p>}
                 </div>
                 <div className="rounded-xl border border-dash-border bg-dash-panel p-4 shadow-card">
-                  <h3 className="text-sm font-bold">Finality</h3>
+                  <h3 className="text-sm font-bold">{d.finality}</h3>
                   <p className="mt-3 text-3xl font-bold text-dash-green">{finalityLabel}</p>
                   <p className="mt-1 text-[12px] text-dash-muted">
-                    {blockTimeSec != null ? '측정된 블록 간격' : 'Arc testnet ~0.48s (문서)'}
+                    {blockTimeSec != null ? d.finalityMeasured : d.finalityDoc}
                   </p>
                   {chainOk === false && (
-                    <p className="mt-3 text-[12px] text-amber-400">Chain ID가 Testnet과 다릅니다.</p>
+                    <p className="mt-3 text-[12px] text-amber-400">{d.chainIdMismatch}</p>
                   )}
                 </div>
               </section>
 
               <section className="grid gap-3 lg:grid-cols-3">
                 <div className="rounded-xl border border-dash-border bg-dash-panel p-4 shadow-card lg:col-span-2">
-                  <h3 className="text-sm font-bold">Head / Checkpoint progression</h3>
-                  <p className="text-[11px] text-dash-muted">폴링 시점별 로컬 헤드 vs 네트워크 헤드</p>
+                  <h3 className="text-sm font-bold">{d.headChartTitle}</h3>
+                  <p className="text-[11px] text-dash-muted">{d.headChartSubtitle}</p>
                   {chartsReady ? (
-                    <HeadProgressionChart series={headSeries} />
+                    <HeadProgressionChart series={headSeries} labels={chartLabels} />
                   ) : (
                     <div className="flex h-52 items-center justify-center rounded-lg bg-dash-raised/40 text-[12px] text-dash-muted">
-                      차트 로딩…
+                      {d.chartLoading}
                     </div>
                   )}
                 </div>
                 <div className="rounded-xl border border-dash-border bg-dash-panel p-4 shadow-card">
                   <h3 className="mb-3 flex items-center gap-2 text-sm font-bold">
                     <Cpu className="h-4 w-4" />
-                    Resources
+                    {d.resources}
                   </h3>
                   {(resourceBars ?? [
                     { label: 'CPU', pct: 0, icon: Cpu },
@@ -1073,13 +1108,13 @@ export default function ArcDashboard() {
                     </div>
                   ))}
                   {!resourceBars && (
-                    <p className="text-[10px] text-dash-muted">노드와 동일 호스트에서 대시보드 실행 시 OS·디스크 실측</p>
+                    <p className="text-[10px] text-dash-muted">{d.resourcesHint}</p>
                   )}
                 </div>
               </section>
 
               <section className="rounded-xl border border-dash-border bg-dash-panel p-4 shadow-card">
-                <h3 className="text-sm font-bold">Chain profile</h3>
+                <h3 className="text-sm font-bold">{d.chainProfile}</h3>
                 <ul className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                   {chainFacts.map((f) => (
                     <li key={f} className="flex items-center gap-2 text-[13px] text-dash-muted">
@@ -1092,7 +1127,7 @@ export default function ArcDashboard() {
 
               <section id="section-blocks" className="grid gap-3 lg:grid-cols-2">
                 <div className="rounded-xl border border-dash-border bg-dash-panel p-4 shadow-card">
-                  <h3 className="text-sm font-bold">Recent Blocks</h3>
+                  <h3 className="text-sm font-bold">{d.recentBlocks}</h3>
                   <div className="mt-3 overflow-x-auto">
                     <table className="w-full min-w-[480px] border-collapse text-left text-[12px]">
                       <thead>
@@ -1129,7 +1164,7 @@ export default function ArcDashboard() {
                   </div>
                 </div>
                 <div id="section-txs" className="rounded-xl border border-dash-border bg-dash-panel p-4 shadow-card">
-                  <h3 className="text-sm font-bold">Recent Transactions</h3>
+                  <h3 className="text-sm font-bold">{d.recentTxs}</h3>
                   <div className="mt-3 overflow-x-auto">
                     <table className="w-full min-w-[440px] border-collapse text-left text-[12px]">
                       <thead>
@@ -1145,7 +1180,7 @@ export default function ArcDashboard() {
                         {filteredTxs.length === 0 ? (
                           <tr>
                             <td colSpan={5} className="py-6 text-center text-dash-muted">
-                              최신 블록에 표시할 트랜잭션이 없거나 로딩 중입니다.
+                              {d.noTxs}
                             </td>
                           </tr>
                         ) : (
@@ -1175,9 +1210,9 @@ export default function ArcDashboard() {
               </section>
 
               <section id="section-prometheus" className="rounded-xl border border-dash-border bg-dash-panel p-4 shadow-card">
-                <h3 className="text-sm font-bold">Prometheus Metrics</h3>
+                <h3 className="text-sm font-bold">{d.prometheusTitle}</h3>
                 <p className="text-[11px] text-dash-muted">
-                  RPC 지연·블록 수집·헤드 차이
+                  {d.prometheusSubtitle}
                   {nodeStatus?.prometheus
                     ? ` · EL metrics ${nodeStatus.prometheus.execMetricCount} · CL ${nodeStatus.prometheus.consMetricCount}`
                     : ''}
@@ -1188,6 +1223,7 @@ export default function ArcDashboard() {
                       rpcSeries={rpcMicro.rpcSeries}
                       importSeries={rpcMicro.importSeries}
                       syncSeries={rpcMicro.syncSeries}
+                      labels={chartLabels}
                     />
                   ) : (
                     <div className="h-24 rounded-lg bg-dash-raised/40" />
@@ -1198,7 +1234,7 @@ export default function ArcDashboard() {
               <section className="grid gap-3 xl:grid-cols-3">
                 <div id="section-logs" className="rounded-xl border border-dash-border bg-dash-panel p-4 shadow-card xl:col-span-1">
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <h3 className="text-sm font-bold">Live Logs</h3>
+                    <h3 className="text-sm font-bold">{d.liveLogs}</h3>
                     <div className="flex gap-2">
                       <button
                         type="button"
@@ -1208,14 +1244,14 @@ export default function ArcDashboard() {
                           logFollow ? 'bg-dash-blue/20 text-dash-blueHi' : 'border border-dash-border'
                         )}
                       >
-                        Follow
+                        {d.follow}
                       </button>
                       <button
                         type="button"
                         onClick={() => setSimLogLines([])}
                         className="rounded border border-dash-border px-2 py-1 text-[11px]"
                       >
-                        Clear
+                        {d.clear}
                       </button>
                     </div>
                   </div>
@@ -1224,7 +1260,7 @@ export default function ArcDashboard() {
                     className="mt-3 h-56 overflow-auto rounded-lg border border-dash-border bg-[#05080f] p-3 font-mono text-[11px] leading-relaxed text-emerald-400/90"
                   >
                     {filteredLogs.length === 0 ? (
-                      <span className="text-dash-muted">로그가 없습니다.</span>
+                      <span className="text-dash-muted">{d.noLogs}</span>
                     ) : (
                       filteredLogs.map((l, i) => (
                         <div key={i} className="whitespace-pre-wrap break-all">
@@ -1235,7 +1271,7 @@ export default function ArcDashboard() {
                   </div>
                 </div>
                 <div id="section-config" className="rounded-xl border border-dash-border bg-dash-panel p-4 shadow-card">
-                  <h3 className="text-sm font-bold">Configuration Validation</h3>
+                  <h3 className="text-sm font-bold">{d.configValidation}</h3>
                   <ul className="mt-3 space-y-2">
                     {configItems.map((c) => (
                       <li key={c.label} className="flex items-start gap-2 text-[13px]">
@@ -1251,15 +1287,15 @@ export default function ArcDashboard() {
                 </div>
                 <div id="section-docs" className="rounded-xl border border-dash-border bg-dash-panel p-4 shadow-card">
                   <div className="flex items-center justify-between gap-2">
-                    <h3 className="text-sm font-bold">Arc Docs Assistant</h3>
+                    <h3 className="text-sm font-bold">{d.docAssistant}</h3>
                     <span className="rounded bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-400">
                       docs.arc.io/mcp
                     </span>
                   </div>
-                  <p className="mt-1 text-[11px] text-dash-muted">Connected · search_arc_docs</p>
+                  <p className="mt-1 text-[11px] text-dash-muted">{d.docConnected}</p>
                   <div className="mt-3 max-h-48 space-y-2 overflow-y-auto rounded-lg border border-dash-border bg-dash-bg/80 p-2">
                     {assistantMessages.length === 0 && (
-                      <p className="text-[12px] text-dash-muted">질문을 입력하고 검색해 보세요.</p>
+                      <p className="text-[12px] text-dash-muted">{d.docEmpty}</p>
                     )}
                     {assistantMessages.map((m, i) => (
                       <div
@@ -1269,7 +1305,9 @@ export default function ArcDashboard() {
                           m.role === 'user' ? 'ml-4 bg-dash-blue/15 text-dash-text' : 'mr-4 bg-dash-raised text-dash-muted'
                         )}
                       >
-                        <span className="text-[10px] font-bold uppercase text-dash-muted">{m.role}</span>
+                        <span className="text-[10px] font-bold uppercase text-dash-muted">
+                          {m.role === 'user' ? d.roleUser : d.roleAssistant}
+                        </span>
                         <pre className="mt-1 whitespace-pre-wrap font-sans">{m.text}</pre>
                       </div>
                     ))}
@@ -1279,13 +1317,7 @@ export default function ArcDashboard() {
                       value={docQuery}
                       onChange={(e) => setDocQuery(e.target.value)}
                       onKeyDown={(e) => e.key === 'Enter' && void runDocSearch()}
-                      placeholder={
-                        lang === 'ko'
-                          ? '노드가 동기화되지 않는 이유는?'
-                          : lang === 'ja'
-                            ? 'ノードが同期しない理由は？'
-                            : "Why isn't my node syncing?"
-                      }
+                      placeholder={d.docPlaceholder}
                       className="min-w-0 flex-1 rounded-lg border border-dash-border bg-dash-bg px-3 py-2 text-[13px]"
                     />
                     <button
@@ -1294,7 +1326,7 @@ export default function ArcDashboard() {
                       onClick={() => void runDocSearch()}
                       className="shrink-0 rounded-lg bg-dash-blue px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
                     >
-                      {docLoading ? '…' : '검색'}
+                      {docLoading ? '…' : d.docSearch}
                     </button>
                   </div>
                   {docHits.length > 0 && (
@@ -1319,7 +1351,7 @@ export default function ArcDashboard() {
                 <section id="section-alerts" className="rounded-xl border border-dash-border border-amber-500/20 bg-amber-500/5 p-4">
                   <h3 className="flex items-center gap-2 text-sm font-bold text-amber-200">
                     <AlertTriangle className="h-4 w-4" />
-                    Alerts ({nodeStatus.alerts.length})
+                    {d.nav.alerts} ({nodeStatus.alerts.length})
                   </h3>
                   <ul className="mt-2 list-inside list-disc text-[13px] text-dash-muted">
                     {nodeStatus.alerts.map((a) => (
@@ -1335,7 +1367,7 @@ export default function ArcDashboard() {
         <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-dash-border bg-dash-surface px-4 py-2 text-[11px] text-dash-muted">
           <div className="flex items-center gap-2">
             <span className="h-2 w-2 rounded-full bg-emerald-500" />
-            All systems operational
+            {d.footerOperational}
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {[

@@ -33,15 +33,26 @@ export function LatencySpark({ values }: { values: number[] }) {
   );
 }
 
+export type ChartLabels = {
+  pollingEmpty: string;
+  localHead: string;
+  networkHead: string;
+  rpcLatency: string;
+  blockImportRate: string;
+  syncStage: string;
+};
+
 export function HeadProgressionChart({
-  series
+  series,
+  labels
 }: {
   series: { t: string; local: number; network: number }[];
+  labels: Pick<ChartLabels, 'pollingEmpty' | 'localHead' | 'networkHead'>;
 }) {
   if (!series.length) {
     return (
       <div className="flex h-52 items-center justify-center rounded-lg border border-dashed border-dash-border text-[12px] text-dash-muted">
-        폴링 데이터가 쌓이면 그래프가 표시됩니다.
+        {labels.pollingEmpty}
       </div>
     );
   }
@@ -71,8 +82,8 @@ export function HeadProgressionChart({
             }}
             labelStyle={{ color: '#94a3b8' }}
           />
-          <Line type="monotone" dataKey="local" name="Local head" stroke="#3b82f6" strokeWidth={2} dot={false} isAnimationActive={false} />
-          <Line type="monotone" dataKey="network" name="Network head" stroke="#22c55e" strokeWidth={2} dot={false} isAnimationActive={false} />
+          <Line type="monotone" dataKey="local" name={labels.localHead} stroke="#3b82f6" strokeWidth={2} dot={false} isAnimationActive={false} />
+          <Line type="monotone" dataKey="network" name={labels.networkHead} stroke="#22c55e" strokeWidth={2} dot={false} isAnimationActive={false} />
         </LineChart>
       </ResponsiveContainer>
     </div>
@@ -82,21 +93,23 @@ export function HeadProgressionChart({
 export function MicroMetricLines({
   rpcSeries,
   importSeries,
-  syncSeries
+  syncSeries,
+  labels
 }: {
   rpcSeries: { x: number; y: number }[];
   importSeries: { x: number; y: number }[];
   syncSeries: { x: number; y: number }[];
+  labels: Pick<ChartLabels, 'rpcLatency' | 'blockImportRate' | 'syncStage'>;
 }) {
   const pad = (arr: { x: number; y: number }[]) => (arr.length ? arr : [{ x: 0, y: 0 }]);
   return (
     <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
       {[
-        { title: 'RPC 응답 시간', data: pad(rpcSeries), stroke: '#3b82f6' },
-        { title: '블록 수집률 (상대)', data: pad(importSeries), stroke: '#a78bfa' },
-        { title: '싱크 스테이지 (상대)', data: pad(syncSeries), stroke: '#22c55e' }
+        { id: 'rpc', title: labels.rpcLatency, data: pad(rpcSeries), stroke: '#3b82f6' },
+        { id: 'import', title: labels.blockImportRate, data: pad(importSeries), stroke: '#a78bfa' },
+        { id: 'sync', title: labels.syncStage, data: pad(syncSeries), stroke: '#22c55e' }
       ].map((c) => (
-        <div key={c.title} className="rounded-lg border border-dash-border bg-dash-surface/80 p-2">
+        <div key={c.id} className="rounded-lg border border-dash-border bg-dash-surface/80 p-2">
           <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-dash-muted">{c.title}</p>
           <div className="h-16 w-full">
             <ResponsiveContainer width="100%" height="100%">

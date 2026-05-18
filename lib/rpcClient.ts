@@ -1,3 +1,4 @@
+import { describeRpcFetchError, describeRpcHttpError, formatRpcFetchError } from '@/lib/rpcFetchError';
 import { isAllowedRpcUrl } from '@/lib/urlAllowlist';
 
 export type JsonRpcResult<T = unknown> = {
@@ -5,6 +6,8 @@ export type JsonRpcResult<T = unknown> = {
   ms: number;
   result?: T;
   error?: string;
+  hint?: string;
+  code?: string;
 };
 
 export async function callJsonRpc<T = unknown>(
@@ -33,11 +36,28 @@ export async function callJsonRpc<T = unknown>(
     });
     const ms = Math.round(performance.now() - t0);
     const data = (await res.json()) as { result?: T; error?: { message: string } };
-    if (!res.ok) return { ok: false, ms, error: `HTTP ${res.status}` };
+    if (!res.ok) {
+      const info = describeRpcHttpError(res.status, rpcUrl);
+      return {
+        ok: false,
+        ms,
+        error: formatRpcFetchError(info),
+        hint: info.hint,
+        code: info.code
+      };
+    }
     if (data.error) return { ok: false, ms, error: data.error.message };
     return { ok: true, ms, result: data.result };
   } catch (e) {
-    return { ok: false, ms: Math.round(performance.now() - t0), error: e instanceof Error ? e.message : 'fetch failed' };
+    const ms = Math.round(performance.now() - t0);
+    const info = describeRpcFetchError(e, rpcUrl);
+    return {
+      ok: false,
+      ms,
+      error: formatRpcFetchError(info),
+      hint: info.hint,
+      code: info.code
+    };
   } finally {
     clearTimeout(tid);
   }

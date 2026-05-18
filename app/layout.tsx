@@ -12,7 +12,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="ko" className={`${dmSans.variable} ${jetbrains.variable} h-full`}>
+    <html lang="en" className={`${dmSans.variable} ${jetbrains.variable} h-full`}>
       <body className="min-h-full">{children}</body>
     </html>
   );
