@@ -142,12 +142,12 @@ cast block-number --rpc-url http://127.0.0.1:8545
 ## Ver el panel en un servidor remoto
 
 Por defecto, `npm run dev:local` escucha solo en **`127.0.0.1:3333`**.  
-No puedes abrir `http://111.222.333.444:3333` directamente sin cambiar el bind.
+No puedes abrir `http://YOUR_SERVER_IP:3333` directamente sin cambiar el bind.
 
 ### Opción A — Túnel SSH (recomendado)
 
 ```bash
-ssh -L 3333:127.0.0.1:3333 ubuntu@111.222.333.444
+ssh -L 3333:127.0.0.1:3333 ubuntu@YOUR_SERVER_IP
 ```
 
 Navegador: **http://127.0.0.1:3333**
@@ -159,7 +159,7 @@ npm run dev -- -H 0.0.0.0 -p 3333
 sudo ufw allow 3333/tcp
 ```
 
-Navegador: **http://111.222.333.444:3333**
+Navegador: **http://YOUR_SERVER_IP:3333**
 
 > Si se expone a internet, añade autenticación (proxy inverso, VPN, Basic Auth).
 

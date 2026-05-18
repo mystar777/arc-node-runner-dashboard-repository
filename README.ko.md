@@ -161,14 +161,14 @@ npm run dev:local
 ## 원격 서버에서 대시보드 보기
 
 기본 `npm run dev:local`은 **`127.0.0.1:3333`** 에만 바인딩됩니다.  
-즉, 서버 IP `111.222.333.444:3333`으로 **바로 접속되지 않습니다**.
+즉, 서버 IP `YOUR_SERVER_IP:3333`으로 **바로 접속되지 않습니다**.
 
 ### 방법 A — SSH 터널 (권장, 보안)
 
 서버에서는 로컬만 열고, 내 PC에서:
 
 ```bash
-ssh -L 3333:127.0.0.1:3333 ubuntu@111.222.333.444
+ssh -L 3333:127.0.0.1:3333 ubuntu@YOUR_SERVER_IP
 ```
 
 브라우저: **http://127.0.0.1:3333**
@@ -186,37 +186,60 @@ npm run dev -- -H 0.0.0.0 -p 3333
 sudo ufw allow 3333/tcp
 ```
 
-브라우저: **http://111.222.333.444:3333**
+브라우저: **http://YOUR_SERVER_IP:3333**
 
 > 공개 인터넷에 노출 시 인증(리버스 프록시, VPN, Basic Auth)을 반드시 고려하세요.
 
 ### 방법 C — 프로덕션 HTTPS (Nginx + Let's Encrypt) **공개 접속 권장**
 
-Ubuntu에서 앱 빌드 → `systemd`로 `127.0.0.1:3333` 실행 → **Nginx**가 **80/443**에서 HTTPS 종료 → **Let's Encrypt** 인증서(공인 IP 또는 도메인).
+Ubuntu 자동 스크립트입니다. 앱을 빌드하고 `systemd`로 내부 `127.0.0.1:3333`에 띄운 뒤, **Nginx**가 **80/443**에서 HTTPS 역프록시를 담당합니다.
 
 ```bash
 cd arc-node-runner-dashboard-repository
 # .env.local 편집 후
 
-sudo PUBLIC_HOST=203.0.113.10 \
+sudo LE_EMAIL=you@example.com bash scripts/setup-dashboard-https.sh
+```
+
+스크립트가 서버의 공인 IPv4를 자동 감지합니다. 별도 도메인이 없으면 인증서 호스트로 `YOUR_PUBLIC_IP.nip.io`를 자동 사용합니다.
+
+구성 결과 예시:
+
+| 접속 방식 | URL | 브라우저 인증서 |
+|-----------|-----|-----------------|
+| 권장 HTTPS | `https://YOUR_PUBLIC_IP.nip.io/` | 신뢰됨 |
+| IP로 HTTP 접속 | `http://YOUR_PUBLIC_IP/` | 위 `nip.io` HTTPS 주소로 자동 리다이렉트 |
+| IP로 HTTPS 직접 접속 | `https://YOUR_PUBLIC_IP/` | 인증서 이름 불일치 경고 가능 |
+
+`YOUR_PUBLIC_IP`는 실제 IP가 아니라 placeholder입니다. 서버의 공인 IPv4로 바꿔 읽으면 됩니다. 도메인이 있다면 DNS를 서버로 연결한 뒤 아래처럼 실행하세요.
+
+```bash
+sudo PUBLIC_HOST=dashboard.example.com \
      LE_EMAIL=you@example.com \
      bash scripts/setup-dashboard-https.sh
 ```
 
-접속: **https://203.0.113.10/** (실제 공인 IP 또는 DNS 이름 사용).
+**자동 구성 내용**
+
+- `arc-dashboard.service`: Next.js 프로덕션 앱 (`127.0.0.1:3333`)
+- Nginx: 80/443 리버스 프록시, ACME 인증 경로
+- Let's Encrypt: `PUBLIC_HOST` 또는 자동 생성된 `PUBLIC_IP.nip.io` 인증서
+- 방화벽 보조: `ufw`가 있으면 80/443 허용 규칙 추가
+- 갱신: `certbot.timer` 활성화
+
+**주요 옵션**
 
 | 변수 | 필수 | 설명 |
 |------|------|------|
-| `PUBLIC_HOST` | 예 | 공인 **IP** 또는 이 서버를 가리키는 **도메인** |
-| `LE_EMAIL` | 예 | Let's Encrypt 등록 이메일 |
-| `ENABLE_BASIC_AUTH` | 아니오 | `1`이면 Nginx HTTP Basic Auth |
-| `SKIP_BUILD` / `SKIP_CERTBOT` | 아니오 | 빌드·인증서 단계 건너뛰기 |
-
-**조건:** TCP **80·443** 개방, [Let's Encrypt IP 인증서](https://letsencrypt.org/docs/ip-addresses/)는 유효기간 **약 6일**(자동 갱신). 장기 운영은 **도메인** 권장.
+| `LE_EMAIL` | 예 | Let's Encrypt 등록/만료 알림 이메일 |
+| `PUBLIC_HOST` | 아니오 | 도메인 또는 공인 IPv4. 없으면 공인 IPv4 자동 감지 |
+| `CERT_HOST` | 아니오 | 인증서 호스트 직접 지정. 보통 불필요 |
+| `ENABLE_BASIC_AUTH` | 아니오 | `1`이면 공개 사이트에 HTTP Basic Auth 적용 |
+| `SKIP_BUILD` / `SKIP_CERTBOT` | 아니오 | 재빌드 생략 또는 기존 인증서 재사용 |
 
 **설치 후:** `sudo systemctl status arc-dashboard nginx` · `sudo certbot renew --dry-run`
 
-배포 파일: `deploy/arc-dashboard.service`, `deploy/nginx/arc-dashboard.conf.template`, `scripts/setup-dashboard-https.sh`.
+배포 파일: `scripts/setup-dashboard-https.sh`, `deploy/arc-dashboard.service`, `deploy/nginx/arc-dashboard.conf.template`.
 
 ### 원격 접속 vs 노드 데이터
 
@@ -447,9 +470,10 @@ curl -s -X POST http://127.0.0.1:3333/api/rpc \
 
 ### Let's Encrypt / HTTPS 실패
 
-- **80번 포트**가 인터넷에서 이 서버로 열려 있는지 확인.
-- `PUBLIC_HOST`는 **공인 IP/도메인**이어야 함 (`127.0.0.1` 아님).
-- IP 전용 인증서: [Let's Encrypt IP 안내](https://letsencrypt.org/docs/ip-addresses/) (~6일, 자동 갱신 필요).
+- **80번 포트**가 인터넷에서 이 서버로 열려 있는지 확인 (`외부에서 curl -I http://YOUR_PUBLIC_IP/`).
+- `PUBLIC_HOST`는 **공인 IPv4** 또는 도메인이어야 함 (`127.0.0.1` 아님).
+- `PUBLIC_HOST`가 IPv4이면 스크립트가 `PUBLIC_HOST.nip.io`로 인증서를 발급합니다. 신뢰된 HTTPS는 해당 `nip.io` 주소로 접속하세요.
+- `nip.io`가 불안정하거나 발급 한도에 걸리면 실제 도메인을 서버 IP에 연결한 뒤 `PUBLIC_HOST=dashboard.example.com`으로 다시 실행하세요.
 
 ---
 

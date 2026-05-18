@@ -161,14 +161,14 @@ npm run dev:local
 ## Viewing the dashboard on a remote server
 
 By default, `npm run dev:local` binds to **`127.0.0.1:3333` only**.  
-You **cannot** open `http://111.222.333.444:3333` directly unless you change the bind address.
+You **cannot** open `http://YOUR_SERVER_IP:3333` directly unless you change the bind address.
 
 ### Option A — SSH tunnel (recommended, secure)
 
 Keep the server on localhost only; on your PC:
 
 ```bash
-ssh -L 3333:127.0.0.1:3333 ubuntu@111.222.333.444
+ssh -L 3333:127.0.0.1:3333 ubuntu@YOUR_SERVER_IP
 ```
 
 Browser: **http://127.0.0.1:3333**
@@ -186,50 +186,56 @@ Allow **3333/TCP** in firewall / security group:
 sudo ufw allow 3333/tcp
 ```
 
-Browser: **http://111.222.333.444:3333**
+Browser: **http://YOUR_SERVER_IP:3333**
 
 > If exposed on the public internet, add authentication (reverse proxy, VPN, Basic Auth).
 
-### Option C — Production with HTTPS (Nginx + Let's Encrypt) **recommended for public access**
+### Option C — Production HTTPS (Nginx + Let's Encrypt) **recommended for public access**
 
-Automated script for **Ubuntu**: builds the app, runs it as `systemd` on `127.0.0.1:3333`, puts **Nginx** in front on ports **80/443**, and obtains a **Let's Encrypt** certificate for your **public IP or domain**.
+Automated Ubuntu script: builds the app, runs it as `systemd` on `127.0.0.1:3333`, puts **Nginx** in front on **80/443**, and issues a **Let's Encrypt** certificate.
 
 ```bash
 cd arc-node-runner-dashboard-repository
 # Edit .env.local first (RPC URLs, etc.)
 
-sudo PUBLIC_HOST=203.0.113.10 \
+sudo LE_EMAIL=you@example.com bash scripts/setup-dashboard-https.sh
+```
+
+The script auto-detects the server's public IPv4. If you do not have a domain, it automatically uses `YOUR_PUBLIC_IP.nip.io` for the certificate.
+
+Example result:
+
+| Access method | URL | Browser certificate |
+|---------------|-----|---------------------|
+| Recommended HTTPS | `https://YOUR_PUBLIC_IP.nip.io/` | Trusted |
+| Raw IP over HTTP | `http://YOUR_PUBLIC_IP/` | Redirects to the `nip.io` HTTPS URL |
+| Raw IP over HTTPS | `https://YOUR_PUBLIC_IP/` | May warn: certificate name mismatch |
+
+`YOUR_PUBLIC_IP` is a placeholder, not a real address. Replace it with your server's public IPv4. If you already have a domain, point it to the server and run:
+
+```bash
+sudo PUBLIC_HOST=dashboard.example.com \
      LE_EMAIL=you@example.com \
      bash scripts/setup-dashboard-https.sh
 ```
 
-Open: **https://203.0.113.10/** (use your real public IP or DNS name).
+**What gets configured**
+
+- `arc-dashboard.service`: Next.js production app on internal `127.0.0.1:3333`
+- Nginx: HTTP/HTTPS reverse proxy and ACME challenge route
+- Let's Encrypt: certificate for `PUBLIC_HOST` or auto-generated `PUBLIC_IP.nip.io`
+- Firewall helper: allows 80/443 with `ufw` when available
+- Renewal: enables `certbot.timer`
+
+**Common options**
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `PUBLIC_HOST` | yes | Public **IPv4/IPv6** or **domain** that points to this server |
-| `LE_EMAIL` | yes | Email for Let's Encrypt account / expiry notices |
-| `REPO_DIR` | no | Repo path (default: script parent directory) |
-| `DASHBOARD_USER` | no | Linux user running the app (default: `ubuntu`) |
-| `ENABLE_BASIC_AUTH` | no | Set to `1` to require HTTP Basic Auth in Nginx |
-| `BASIC_AUTH_USER` / `BASIC_AUTH_PASSWORD` | no | Basic Auth credentials (prompt if password unset) |
-| `SKIP_BUILD` | no | `1` to skip `npm ci` / `npm run build` |
-| `SKIP_CERTBOT` | no | `1` to reuse existing certs under `/etc/letsencrypt/live/$PUBLIC_HOST/` |
-
-**Prerequisites**
-
-- Ubuntu 22.04+ (same host as the Arc node is typical, but dashboard-only also works)
-- **TCP 80 and 443** open in cloud security group / `ufw` (80 is used for ACME validation)
-- `PUBLIC_HOST` must match what clients use in the browser (public IP or DNS A record)
-- [Let's Encrypt IP certificates](https://letsencrypt.org/docs/ip-addresses/) are supported but **short-lived (~6 days)**; `certbot.timer` auto-renewal is enabled. A **domain name** gives standard 90-day certs and is preferred for production.
-
-**What the script installs**
-
-1. `nginx`, `certbot`, Node 20 if needed  
-2. `npm ci` + `npm run build`  
-3. `arc-dashboard.service` → `npm run start:prod` (`127.0.0.1:3333`)  
-4. Let's Encrypt via `certbot certonly --webroot`  
-5. Nginx site: HTTP → HTTPS redirect, TLS termination, proxy to the app  
+| `LE_EMAIL` | yes | Let's Encrypt account / expiry email |
+| `PUBLIC_HOST` | no | Domain or public IPv4. If omitted, public IPv4 is auto-detected |
+| `CERT_HOST` | no | Override certificate hostname. Usually not needed |
+| `ENABLE_BASIC_AUTH` | no | `1` to protect the public site with HTTP Basic Auth |
+| `SKIP_BUILD` / `SKIP_CERTBOT` | no | Skip rebuild or reuse existing certificate |
 
 **After install**
 
@@ -239,22 +245,7 @@ sudo journalctl -u arc-dashboard -f
 sudo certbot renew --dry-run
 ```
 
-**Optional Basic Auth** (recommended on the public internet):
-
-```bash
-sudo ENABLE_BASIC_AUTH=1 BASIC_AUTH_USER=admin BASIC_AUTH_PASSWORD='your-secret' \
-  PUBLIC_HOST=203.0.113.10 LE_EMAIL=you@example.com \
-  bash scripts/setup-dashboard-https.sh
-```
-
-**Manual production (no TLS)** — not recommended externally:
-
-```bash
-npm run build
-npm run start:prod   # 127.0.0.1:3333 only; use Nginx script above for HTTPS
-```
-
-Deploy files: `deploy/arc-dashboard.service`, `deploy/nginx/arc-dashboard.conf.template`, `scripts/setup-dashboard-https.sh`.
+Deploy files: `scripts/setup-dashboard-https.sh`, `deploy/arc-dashboard.service`, `deploy/nginx/arc-dashboard.conf.template`.
 
 ### Remote access vs node data
 
@@ -496,9 +487,10 @@ Confirm `.env` and node use **Arc Testnet** (`5042002`). Check genesis and `--ch
 
 ### Let's Encrypt / HTTPS fails
 
-- Confirm **port 80** is reachable from the internet (`curl -I http://YOUR_IP/.well-known/acme-challenge/test` from outside).
-- `PUBLIC_HOST` must be the **public** IP or hostname, not `127.0.0.1`.
-- For **IP-only** certs, see [Let's Encrypt IP limits](https://letsencrypt.org/docs/ip-addresses/) (~6-day lifetime, frequent renewal).
+- Confirm **port 80** is reachable from the internet (`curl -I http://YOUR_PUBLIC_IP/` from outside).
+- `PUBLIC_HOST` must be a **public IPv4** or hostname, not `127.0.0.1`.
+- If `PUBLIC_HOST` is an IPv4 address, the script issues the certificate for `PUBLIC_HOST.nip.io`; open that `nip.io` URL for trusted HTTPS.
+- If `nip.io` is unavailable or rate-limited, attach a real domain to the server and rerun with `PUBLIC_HOST=dashboard.example.com`.
 - Logs: `sudo journalctl -u nginx -n 50`, `sudo cat /var/log/letsencrypt/letsencrypt.log`.
 - Re-run after fixing firewall: same `setup-dashboard-https.sh` command (or `SKIP_BUILD=1` if already built).
 
