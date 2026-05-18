@@ -190,14 +190,33 @@ sudo ufw allow 3333/tcp
 
 > 공개 인터넷에 노출 시 인증(리버스 프록시, VPN, Basic Auth)을 반드시 고려하세요.
 
-### 방법 C — 프로덕션
+### 방법 C — 프로덕션 HTTPS (Nginx + Let's Encrypt) **공개 접속 권장**
+
+Ubuntu에서 앱 빌드 → `systemd`로 `127.0.0.1:3333` 실행 → **Nginx**가 **80/443**에서 HTTPS 종료 → **Let's Encrypt** 인증서(공인 IP 또는 도메인).
 
 ```bash
-npm run build
-npm start -- -H 0.0.0.0 -p 3333
+cd arc-node-runner-dashboard-repository
+# .env.local 편집 후
+
+sudo PUBLIC_HOST=203.0.113.10 \
+     LE_EMAIL=you@example.com \
+     bash scripts/setup-dashboard-https.sh
 ```
 
-Nginx + HTTPS + 인증 앞단 구성을 권장합니다.
+접속: **https://203.0.113.10/** (실제 공인 IP 또는 DNS 이름 사용).
+
+| 변수 | 필수 | 설명 |
+|------|------|------|
+| `PUBLIC_HOST` | 예 | 공인 **IP** 또는 이 서버를 가리키는 **도메인** |
+| `LE_EMAIL` | 예 | Let's Encrypt 등록 이메일 |
+| `ENABLE_BASIC_AUTH` | 아니오 | `1`이면 Nginx HTTP Basic Auth |
+| `SKIP_BUILD` / `SKIP_CERTBOT` | 아니오 | 빌드·인증서 단계 건너뛰기 |
+
+**조건:** TCP **80·443** 개방, [Let's Encrypt IP 인증서](https://letsencrypt.org/docs/ip-addresses/)는 유효기간 **약 6일**(자동 갱신). 장기 운영은 **도메인** 권장.
+
+**설치 후:** `sudo systemctl status arc-dashboard nginx` · `sudo certbot renew --dry-run`
+
+배포 파일: `deploy/arc-dashboard.service`, `deploy/nginx/arc-dashboard.conf.template`, `scripts/setup-dashboard-https.sh`.
 
 ### 원격 접속 vs 노드 데이터
 
@@ -246,7 +265,8 @@ ARC_NETWORK_RPC_URL=https://rpc.testnet.arc.network
 | `npm run dev` | 개발 서버 (기본 `0.0.0.0:3000`) |
 | `npm run dev:local` | `127.0.0.1:3333` — 로컬·SSH 터널용 |
 | `npm run build` | 프로덕션 빌드 |
-| `npm run start` | 프로덕션 서버 |
+| `npm run start` | 프로덕션 서버 (기본 3000) |
+| `npm run start:prod` | `127.0.0.1:3333` (Nginx 역프록시용) |
 | `npm run setup:hooks` | Git `Co-authored-by: Cursor` 차단 훅 설치 |
 | `npm run commit:safe -- "메시지"` | Cursor 래핑 없이 안전 커밋 |
 
@@ -324,8 +344,12 @@ Cursor IDE에서 동일 MCP를 쓰려면 [Arc MCP 문서](https://docs.arc.io/ai
 ├── components/
 │   └── arc-dashboard/    # 대시보드 UI, charts, i18n.ts
 ├── lib/                  # RPC, Prometheus, URL allowlist, rpcFetchError
+├── deploy/
+│   ├── arc-dashboard.service
+│   └── nginx/arc-dashboard.conf.template
 ├── scripts/
-│   ├── install-arc-node.sh   # Ubuntu 노드 자동 설치
+│   ├── install-arc-node.sh
+│   ├── setup-dashboard-https.sh   # Nginx + Let's Encrypt HTTPS
 │   ├── install-git-hooks.mjs
 │   ├── git-commit-safe.mjs
 │   └── ensure-node.mjs
@@ -420,6 +444,12 @@ curl -s -X POST http://127.0.0.1:3333/api/rpc \
 ### Chain ID 불일치
 
 `.env`와 노드가 **Arc Testnet**(`5042002`)인지 확인. [Run an Arc node](https://docs.arc.io/arc/tutorials/run-an-arc-node) 제네시스·`--chain arc-testnet` 확인.
+
+### Let's Encrypt / HTTPS 실패
+
+- **80번 포트**가 인터넷에서 이 서버로 열려 있는지 확인.
+- `PUBLIC_HOST`는 **공인 IP/도메인**이어야 함 (`127.0.0.1` 아님).
+- IP 전용 인증서: [Let's Encrypt IP 안내](https://letsencrypt.org/docs/ip-addresses/) (~6일, 자동 갱신 필요).
 
 ---
 

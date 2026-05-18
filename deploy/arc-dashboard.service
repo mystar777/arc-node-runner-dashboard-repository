@@ -1,0 +1,21 @@
+[Unit]
+Description=Arc Node Runner Dashboard (Next.js production)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=%DASHBOARD_USER%
+Group=%DASHBOARD_USER%
+WorkingDirectory=%REPO_DIR%
+Environment=NODE_ENV=production
+EnvironmentFile=-%REPO_DIR%/.env.local
+ExecStart=%NPM_BIN% run start:prod
+Restart=on-failure
+RestartSec=8
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=arc-dashboard
+
+[Install]
+WantedBy=multi-user.target

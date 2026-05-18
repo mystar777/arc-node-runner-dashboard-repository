@@ -190,14 +190,71 @@ Browser: **http://111.222.333.444:3333**
 
 > If exposed on the public internet, add authentication (reverse proxy, VPN, Basic Auth).
 
-### Option C — Production
+### Option C — Production with HTTPS (Nginx + Let's Encrypt) **recommended for public access**
+
+Automated script for **Ubuntu**: builds the app, runs it as `systemd` on `127.0.0.1:3333`, puts **Nginx** in front on ports **80/443**, and obtains a **Let's Encrypt** certificate for your **public IP or domain**.
+
+```bash
+cd arc-node-runner-dashboard-repository
+# Edit .env.local first (RPC URLs, etc.)
+
+sudo PUBLIC_HOST=203.0.113.10 \
+     LE_EMAIL=you@example.com \
+     bash scripts/setup-dashboard-https.sh
+```
+
+Open: **https://203.0.113.10/** (use your real public IP or DNS name).
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `PUBLIC_HOST` | yes | Public **IPv4/IPv6** or **domain** that points to this server |
+| `LE_EMAIL` | yes | Email for Let's Encrypt account / expiry notices |
+| `REPO_DIR` | no | Repo path (default: script parent directory) |
+| `DASHBOARD_USER` | no | Linux user running the app (default: `ubuntu`) |
+| `ENABLE_BASIC_AUTH` | no | Set to `1` to require HTTP Basic Auth in Nginx |
+| `BASIC_AUTH_USER` / `BASIC_AUTH_PASSWORD` | no | Basic Auth credentials (prompt if password unset) |
+| `SKIP_BUILD` | no | `1` to skip `npm ci` / `npm run build` |
+| `SKIP_CERTBOT` | no | `1` to reuse existing certs under `/etc/letsencrypt/live/$PUBLIC_HOST/` |
+
+**Prerequisites**
+
+- Ubuntu 22.04+ (same host as the Arc node is typical, but dashboard-only also works)
+- **TCP 80 and 443** open in cloud security group / `ufw` (80 is used for ACME validation)
+- `PUBLIC_HOST` must match what clients use in the browser (public IP or DNS A record)
+- [Let's Encrypt IP certificates](https://letsencrypt.org/docs/ip-addresses/) are supported but **short-lived (~6 days)**; `certbot.timer` auto-renewal is enabled. A **domain name** gives standard 90-day certs and is preferred for production.
+
+**What the script installs**
+
+1. `nginx`, `certbot`, Node 20 if needed  
+2. `npm ci` + `npm run build`  
+3. `arc-dashboard.service` → `npm run start:prod` (`127.0.0.1:3333`)  
+4. Let's Encrypt via `certbot certonly --webroot`  
+5. Nginx site: HTTP → HTTPS redirect, TLS termination, proxy to the app  
+
+**After install**
+
+```bash
+sudo systemctl status arc-dashboard nginx
+sudo journalctl -u arc-dashboard -f
+sudo certbot renew --dry-run
+```
+
+**Optional Basic Auth** (recommended on the public internet):
+
+```bash
+sudo ENABLE_BASIC_AUTH=1 BASIC_AUTH_USER=admin BASIC_AUTH_PASSWORD='your-secret' \
+  PUBLIC_HOST=203.0.113.10 LE_EMAIL=you@example.com \
+  bash scripts/setup-dashboard-https.sh
+```
+
+**Manual production (no TLS)** — not recommended externally:
 
 ```bash
 npm run build
-npm start -- -H 0.0.0.0 -p 3333
+npm run start:prod   # 127.0.0.1:3333 only; use Nginx script above for HTTPS
 ```
 
-Use Nginx + HTTPS + auth in front.
+Deploy files: `deploy/arc-dashboard.service`, `deploy/nginx/arc-dashboard.conf.template`, `scripts/setup-dashboard-https.sh`.
 
 ### Remote access vs node data
 
@@ -246,7 +303,8 @@ Official Testnet HTTP RPC ([RPC endpoints](https://docs.arc.io/arc/references/rp
 | `npm run dev` | Dev server (default `0.0.0.0:3000`) |
 | `npm run dev:local` | `127.0.0.1:3333` — local / SSH tunnel |
 | `npm run build` | Production build |
-| `npm run start` | Production server |
+| `npm run start` | Production server (default port 3000) |
+| `npm run start:prod` | Production on `127.0.0.1:3333` (for Nginx reverse proxy) |
 | `npm run setup:hooks` | Install Git hooks blocking `Co-authored-by: Cursor` |
 | `npm run commit:safe -- "message"` | Commit without Cursor wrapper |
 
@@ -335,8 +393,12 @@ Logic: `lib/rpcFetchError.ts`.
 ├── components/
 │   └── arc-dashboard/    # Dashboard UI, charts, i18n.ts
 ├── lib/                  # RPC, Prometheus, URL allowlist, rpcFetchError
+├── deploy/
+│   ├── arc-dashboard.service      # systemd unit template
+│   └── nginx/arc-dashboard.conf.template
 ├── scripts/
-│   ├── install-arc-node.sh   # Ubuntu node installer
+│   ├── install-arc-node.sh        # Ubuntu node installer
+│   ├── setup-dashboard-https.sh   # Nginx + Let's Encrypt HTTPS
 │   ├── install-git-hooks.mjs
 │   ├── git-commit-safe.mjs
 │   └── ensure-node.mjs
@@ -431,6 +493,19 @@ Expected (tens of GB, 1–2 hours). `SKIP_SNAPSHOTS=1` makes initial sync much l
 ### Chain ID mismatch
 
 Confirm `.env` and node use **Arc Testnet** (`5042002`). Check genesis and `--chain arc-testnet` in [Run an Arc node](https://docs.arc.io/arc/tutorials/run-an-arc-node).
+
+### Let's Encrypt / HTTPS fails
+
+- Confirm **port 80** is reachable from the internet (`curl -I http://YOUR_IP/.well-known/acme-challenge/test` from outside).
+- `PUBLIC_HOST` must be the **public** IP or hostname, not `127.0.0.1`.
+- For **IP-only** certs, see [Let's Encrypt IP limits](https://letsencrypt.org/docs/ip-addresses/) (~6-day lifetime, frequent renewal).
+- Logs: `sudo journalctl -u nginx -n 50`, `sudo cat /var/log/letsencrypt/letsencrypt.log`.
+- Re-run after fixing firewall: same `setup-dashboard-https.sh` command (or `SKIP_BUILD=1` if already built).
+
+### HTTPS works but dashboard shows RPC errors
+
+- On the server, set `.env.local` to local `http://127.0.0.1:8545` if the Arc node runs there, or public RPC if not.
+- Restart: `sudo systemctl restart arc-dashboard`.
 
 ---
 

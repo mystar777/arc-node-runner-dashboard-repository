@@ -10,6 +10,7 @@
     "dev:local": "node scripts/ensure-node.mjs && next dev -H 127.0.0.1 -p 3333",
     "build": "next build",
     "start": "next start",
+    "start:prod": "next start -H 127.0.0.1 -p 3333",
     "lint": "next lint",
     "setup:hooks": "node scripts/install-git-hooks.mjs",
     "commit:safe": "node scripts/git-commit-safe.mjs",
